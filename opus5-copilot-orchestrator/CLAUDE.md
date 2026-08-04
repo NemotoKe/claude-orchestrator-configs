@@ -70,7 +70,7 @@ Give it a self-contained engineering task.
 The worker starts each task without your context. Anything it needs — file paths,
 prior decisions, why an approach was rejected — must be restated in the task.
 
-## Choosing a model
+## Choosing a model — requires Copilot Pro (or higher)
 
 The `model` parameter selects the worker tier. Default to `terra`.
 
@@ -84,9 +84,20 @@ Escalate on evidence, not on anticipation: send the task to `terra` first, and m
 to `sol` only after a concrete failure. Send review and verification work to `luna` —
 it is the cheapest tier and does not need to plan.
 
-## Reasoning effort
+> **This is plan-gated, not a naming problem.** On a Copilot free/individual
+> account, every explicit `model` value failed — `gh api /copilot_internal/user`
+> showed `premium_interactions.entitlement: 0`, meaning the account has zero
+> quota for premium models regardless of spelling. This table assumes
+> **Copilot Pro (or higher)**, where that entitlement is nonzero, and is
+> **unverified even there** — confirm `entitlement > 0` via that same command,
+> then check one real call returns `exit: 0` before trusting it. On a
+> still-free account, omit `model` (falls back to `auto`) rather than guessing
+> at alternate spellings.
 
-The `effort` parameter controls reasoning depth per task.
+## Reasoning effort — needs an explicit model, not `auto`
+
+The `effort` parameter controls reasoning depth per task: `none` / `minimal` /
+`low` / `medium` / `high` / `xhigh` / `max`.
 
 | Effort | Use for |
 |---|---|
@@ -100,8 +111,11 @@ Do not raise effort to compensate for an underspecified task. If the worker is
 flailing, the usual cause is a missing acceptance criterion, not insufficient
 reasoning depth — fix the task specification first.
 
-Note that `luna` has no delegation-capable effort level, which is intentional:
-task decomposition stays on this side.
+**Confirmed 2026-08-04: `effort` requires an explicit `model` — it errors
+outright against `auto`** (`Error: Model "auto" does not support reasoning
+effort configuration`). It is gated by the same Pro-plan requirement as
+`model` above: on a free-tier account there is no model to attach effort to,
+so leave this parameter unset.
 
 ## Review policy
 

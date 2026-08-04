@@ -154,7 +154,10 @@ async function callCopilot(args, isReply) {
 
   const { code, stdout, stderr, timedOut } = await runCopilot(argv, cwd);
 
-  const newSessionId = extractSessionId(stdout) ?? sessionId ?? null;
+  // Copilot CLI prints run stats — including the resume id — to stderr, not
+  // stdout. Search both; stdout first since --output-format json (if enabled)
+  // puts the structured result line there.
+  const newSessionId = extractSessionId(`${stdout}\n${stderr}`) ?? sessionId ?? null;
   if (newSessionId) sessions.set(newSessionId, { cwd, model });
 
   const header = [

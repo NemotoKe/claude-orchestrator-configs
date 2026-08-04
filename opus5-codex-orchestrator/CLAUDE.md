@@ -82,6 +82,30 @@ Review Codex output for:
 
 Do not accept a change merely because tests pass.
 
+## Choosing a model
+
+Pass `model` on the `codex` MCP tool call to pick the worker tier — e.g.
+`model: "gpt-5.6-terra"`. Without it, the server falls back to whatever
+`~/.codex/config.toml` (or the MCP registration) sets as default, which may be
+`gpt-5.6-sol`.
+
+| Model | Use for |
+|---|---|
+| `gpt-5.6-luna` | Mechanical edits, renames, test scaffolding, diff review, verification passes |
+| `gpt-5.6-terra` | **Default** — bounded implementation against clear acceptance criteria |
+| `gpt-5.6-sol` | Non-obvious algorithms, concurrency, tricky migrations, anything `terra` failed at twice |
+
+Escalate on evidence, not on anticipation: send the task to `terra` first, and
+move to `sol` only after a concrete failure. Send review and verification work
+to `luna` — it is the cheapest tier and does not need to plan.
+
+> **Unverified end-to-end.** These three slugs are confirmed to exist in
+> Codex's own model catalog, and `model` is a documented override on this MCP
+> tool, but a live call with an explicit `model` value has not been exercised
+> (Codex usage limits blocked the test on 2026-08-04). If a call errors on the
+> model name, drop the `model` argument and tell the user rather than
+> retrying blindly.
+
 ## Codex reasoning effort
 
 The MCP server is registered with `model_reasoning_effort="high"` as the worker
@@ -89,7 +113,8 @@ default. This overrides the global `~/.codex/config.toml` for this project only;
 interactive Codex sessions are unaffected.
 
 Escalate per task by passing `config` to the `codex` MCP tool, e.g.
-`{"model_reasoning_effort": "xhigh"}`. Effort ladder for `gpt-5.6-sol`:
+`{"model_reasoning_effort": "xhigh"}`. Effort ladder (applies to `sol` and
+`terra`; `luna` has no `ultra` tier — five levels, not six):
 
 | effort | use for |
 |---|---|

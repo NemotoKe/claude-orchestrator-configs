@@ -3,6 +3,7 @@
 
   "command": "copilot",
 
+  "_models_comment": "Checked 2026-08-04 on a Copilot 'individual'/free-limited account: `--model <name>` rejected every explicit value tried, including the account's own auto-selected models by display name ('gpt-5-mini', 'claude-haiku-4.5' both got 'Error: Model \"...\" from --model flag is not available.'). Root cause found via `gh api /copilot_internal/user`: that account's `premium_interactions.entitlement` was 0 — the free plan simply has no quota for premium models, independent of naming. `can_upgrade_plan: true` was set. This config is written for a Copilot Pro (or higher) account where that entitlement is nonzero. UNVERIFIED on Pro: re-run `gh api /copilot_internal/user --jq .quota_snapshots.premium_interactions` after upgrading to confirm entitlement > 0, then test one `codex` call with an explicit model before trusting this table for real work.",
   "models": {
     "terra": "gpt-5.6-terra",
     "luna": "gpt-5.6-luna",
@@ -19,12 +20,12 @@
     "extra": []
   },
 
+  "_effort_comment": "Verified 2026-08-03 against copilot 1.0.77: `--effort, --reasoning-effort <level>` is a real flag (choices from --help: none, minimal, low, medium, high, xhigh, max). ALSO verified 2026-08-04: passing --effort together with --model auto fails outright — 'Error: Model \"auto\" does not support reasoning effort configuration'. Effort is a per-model setting; it only works alongside an explicit model (see the `models` map above), which on this account requires the Pro-plan premium_interactions entitlement described in _models_comment. On a free-tier account, leave `model` unset/auto and treat this whole `effort` block as inert.",
   "effort": {
-    "_comment": "mode: 'flag' if the CLI has a real reasoning-effort flag; 'prompt' to inject it as text instead; 'off' to ignore effort entirely.",
-    "mode": "prompt",
+    "mode": "flag",
     "flag": ["--effort", "{{effort}}"],
     "promptPrefix": "Reasoning depth for this task: {{effort}}.\n\n",
-    "allowed": ["low", "medium", "high", "xhigh", "max"],
+    "allowed": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     "default": "medium"
   },
 
@@ -34,5 +35,6 @@
 
   "timeoutMs": 1800000,
 
-  "sessionIdPattern": "(?:session|thread)[ _-]?id[\"'\\s:=]+([A-Za-z0-9_-]{6,})"
+  "_sessionIdPattern_comment": "Verified 2026-08-03 against copilot 1.0.77: text output prints the resume hint to stderr as '--resume=<id>'; --output-format json (not currently enabled — see args.extra) would print it as \"sessionId\":\"<id>\" in a stdout result line instead. This pattern matches either.",
+  "sessionIdPattern": "(?:--resume[= ]|(?:session|thread)[ _-]?id[\"'\\s:=]+)([A-Za-z0-9_-]{6,})"
 }

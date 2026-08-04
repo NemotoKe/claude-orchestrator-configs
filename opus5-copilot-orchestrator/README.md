@@ -19,14 +19,33 @@ copilot -p "…" --model …
 
 ## Status
 
-The MCP layer is verified end-to-end against a stub binary: handshake, `tools/list`,
-both tools, model-alias resolution, session inheritance on reply, the git-repo guard,
-and run serialization all work.
+Verified end-to-end against the real `copilot` CLI (v1.0.77), not just a stub: the
+MCP handshake, both tools, `--allow-all-tools` file edits, `git diff`-reviewable
+output, and `copilot_reply` session continuity (including model inheritance across
+the reply, after a bug fix — see below) all work with `model: "auto"`.
 
-**The Copilot CLI flag names in `bridge/config.json` are unverified** — they were
-written from prior knowledge without access to the binary. Model availability
-(`gpt-5.6-luna` / `-terra` / `-sol` under Copilot) is likewise assumed, not confirmed.
-Expect to adjust the config once on the target machine; the JS should not need edits.
+**`model: "luna"/"terra"/"sol"` is unverified and plan-gated, not just a naming
+guess.** On a Copilot free/individual account, every explicit `--model` value was
+rejected — including the account's own auto-selected models by display name. The
+actual cause, found via `gh api /copilot_internal/user`: that account's
+`quota_snapshots.premium_interactions.entitlement` was `0`. The free tier has zero
+quota for premium models, independent of what string you pass. `bridge/config.json`
+is written for a **Copilot Pro (or higher)** account where that entitlement is
+nonzero — confirm with the same `gh api` call before trusting the model table, then
+exercise one real call and check `exit: 0`. On a still-free account, don't set
+`model` at all; it falls back to `auto`.
+
+**`effort` requires an explicit `model`.** Passing `effort` while `model` resolves
+to `auto` fails outright (`Error: Model "auto" does not support reasoning effort
+configuration`) — confirmed against the real CLI. So `effort` is gated by the same
+Pro-plan requirement as `model`, not independently.
+
+**Fixed 2026-08-04: session continuity bug.** `copilot_reply` was falling back to
+`config.json`'s `defaultModel` instead of inheriting the model from the original
+call, because session-id extraction was reading only `stdout` — the CLI actually
+prints the resume hint (`Resume     copilot --resume=<id>`) to **stderr**, and the
+original regex didn't match that text form anyway (it assumed a `sessionId: <id>`
+shape). Both are fixed in `copilot-mcp.mjs` / `config.json` and re-verified live.
 
 ## Setup
 
@@ -61,10 +80,13 @@ output. Run one task by hand, look at how the id is printed, and adjust.
 
 ### Reasoning effort
 
-`effort.mode` handles the fact that Copilot may not expose a reasoning-depth flag:
+`effort.mode` handles the fact that a different Copilot CLI version might not
+expose a reasoning-depth flag the same way:
 
-- `"flag"` — a real flag exists; set `effort.flag` to its spelling
-- `"prompt"` — **current default**; the depth is prepended to the prompt as text
+- `"flag"` — **current default**; verified real: `--effort, --reasoning-effort
+  <level>` (choices: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`).
+  Only works with an explicit `model` — see Status above.
+- `"prompt"` — fallback; the depth is prepended to the prompt as text instead
 - `"off"` — ignore effort entirely
 
 ## Tools

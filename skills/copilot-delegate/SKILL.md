@@ -50,7 +50,7 @@ engineering task, in the same shape as Codex delegation:
 - Explicit non-goals
 - Expected final report shape
 
-### Choosing a model
+### Choosing a model — requires Copilot Pro (or higher)
 
 Pass `model` as `luna`, `terra`, or `sol` (aliases resolved by the bridge —
 see `bridge/config.json` in `opus5-copilot-orchestrator`):
@@ -64,15 +64,32 @@ see `bridge/config.json` in `opus5-copilot-orchestrator`):
 Escalate on evidence, not anticipation: `terra` first, `sol` only after a
 concrete failure.
 
-### Reasoning effort
+> **Plan-gated, not a naming issue.** On a Copilot free/individual account
+> every explicit `--model` value was rejected — not because the name was
+> wrong, but because `gh api /copilot_internal/user` showed
+> `premium_interactions.entitlement: 0`: the free tier has zero quota for
+> premium models, full stop. This table is written for a **Copilot Pro (or
+> higher)** account where that entitlement is nonzero, and is **unverified**
+> end-to-end even there. Before trusting it: `gh api /copilot_internal/user
+> --jq .quota_snapshots.premium_interactions` and confirm `entitlement > 0`,
+> then run one real `copilot` call with an explicit `model` and check
+> `exit: 0` in the result before relying on it for actual work. If the
+> account is still on the free tier, skip `model` entirely (falls back to
+> `auto`) — don't retry different spellings; the plan is the blocker, not
+> the string.
 
-Pass `effort` as `low` / `medium` / `high` / `xhigh` / `max`. Default to
-`medium`. **This bridge has no `ultra`-equivalent and no auto-delegation
-mode** — Copilot CLI doesn't expose one, so there is nothing to avoid here
-the way there is with Codex's `ultra`. Whether `effort` maps to a real CLI
-flag or gets prepended to the prompt as text depends on `bridge/config.json`
-in the target environment — don't assume either; the effect is the same
-either way from this skill's perspective.
+### Reasoning effort — needs an explicit model, not `auto`
+
+Pass `effort` as `none` / `minimal` / `low` / `medium` / `high` / `xhigh` /
+`max`. Default to `medium`. **This bridge has no `ultra`-equivalent and no
+auto-delegation mode** — Copilot CLI doesn't expose one, so there is nothing
+to avoid here the way there is with Codex's `ultra`.
+
+**Confirmed 2026-08-04: `effort` only works together with an explicit
+`model`.** Passing it while `model` resolves to `auto` fails outright —
+`Error: Model "auto" does not support reasoning effort configuration`. So
+`effort` is gated by the same Pro-plan requirement as `model` above: on a
+free-tier account, don't set `effort` — there's no model to attach it to.
 
 ## After delegating
 
