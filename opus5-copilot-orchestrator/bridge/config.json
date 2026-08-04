@@ -1,0 +1,38 @@
+{
+  "_comment": "Adapt this file to the real Copilot CLI in the target environment. Run `copilot --help` and fix the `command`, `models`, and `args` sections. No JS changes should be needed.",
+
+  "command": "copilot",
+
+  "models": {
+    "terra": "gpt-5.6-terra",
+    "luna": "gpt-5.6-luna",
+    "sol": "gpt-5.6-sol"
+  },
+  "defaultModel": "terra",
+
+  "args": {
+    "_comment": "Each entry is an argv template. {{var}} is substituted. An empty array disables that argument entirely.",
+    "prompt": ["-p", "{{prompt}}"],
+    "model": ["--model", "{{model}}"],
+    "resume": ["--resume", "{{sessionId}}"],
+    "allowAllTools": ["--allow-all-tools"],
+    "extra": []
+  },
+
+  "effort": {
+    "_comment": "mode: 'flag' if the CLI has a real reasoning-effort flag; 'prompt' to inject it as text instead; 'off' to ignore effort entirely.",
+    "mode": "prompt",
+    "flag": ["--effort", "{{effort}}"],
+    "promptPrefix": "Reasoning depth for this task: {{effort}}.\n\n",
+    "allowed": ["low", "medium", "high", "xhigh", "max"],
+    "default": "medium"
+  },
+
+  "defaultAllowAllTools": true,
+
+  "requireGitRepo": true,
+
+  "timeoutMs": 1800000,
+
+  "sessionIdPattern": "(?:session|thread)[ _-]?id[\"'\\s:=]+([A-Za-z0-9_-]{6,})"
+}
