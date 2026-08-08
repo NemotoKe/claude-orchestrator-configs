@@ -1,56 +1,121 @@
 # claude-orchestrator-configs
 
-Claude Code configs for using Claude as an orchestrator that delegates
-bounded implementation work to another coding agent (Codex or GitHub
-Copilot CLI), instead of writing every line itself.
+Claude Code configs for using Claude as an orchestrator that delegates bounded
+implementation work to another coding agent — Codex CLI or GitHub Copilot CLI —
+instead of implementing everything itself.
 
 ## Layout
 
-```
+```text
 skills/
-  codex-delegate/      Global skill — delegate to Codex on request
-  copilot-delegate/     Global skill — delegate to Copilot CLI on request
+  codex-delegate/              Global skill — delegate one task to Codex CLI
+  copilot-delegate/            Global skill — delegate one task to Copilot CLI
+
 opus5-codex-orchestrator/
-  CLAUDE.md             Always-on policy: this project always delegates to Codex
+  CLAUDE.md                    Always-on policy: delegate implementation to Codex CLI
+
 opus5-copilot-orchestrator/
-  CLAUDE.md, README.md  Same, but worker is Copilot CLI via a custom MCP bridge
-  bridge/                Zero-dependency MCP stdio server wrapping the Copilot CLI
+  CLAUDE.md                    Always-on policy: delegate implementation to Copilot CLI
+  README.md                    Setup and usage
+  bridge/                      MCP stdio bridge wrapping the Copilot CLI
 ```
 
-## Two different mechanisms, on purpose
+## Two delegation modes
 
-**`skills/*-delegate`** are global Claude Code skills (symlinked from
-`~/.claude/skills/`). They stay dormant until you explicitly say "Codexに
-投げて" / "Copilotに投げて" — in any project, for one task at a time. Use
-these when you normally write code yourself and only occasionally want to
-hand something off.
+### Global skills
 
-**`opus5-*-orchestrator/CLAUDE.md`** are project-scoped, always-on policies.
-Working inside one of those directories puts Claude Code into orchestrator
-mode for the whole session — every implementation goes through the worker.
-Use this shape when a project is delegation-first from the start.
+`skills/*-delegate` are global Claude Code skills, typically symlinked from:
 
-## Which worker
+```text
+~/.claude/skills/
+```
 
-- **Codex** — requires a ChatGPT subscription or OpenAI usage-based billing.
-  MCP server is official and built into the Codex CLI (`codex mcp-server`).
-- **Copilot CLI** — for environments where neither Codex payment path is
-  available but GitHub Copilot is. Copilot CLI has no MCP server mode of its
-  own, so `opus5-copilot-orchestrator/bridge/` wraps it in one. See that
-  project's README for setup, and note the Copilot CLI flag names in
-  `bridge/config.json` are unverified against the real binary — expect to
-  adjust that file once, on the target machine.
+They remain dormant until delegation is explicitly requested, for example:
 
-## Global MCP registration
+```text
+Codexに投げて
+Copilotに投げて
+```
 
-Both workers are registered at Claude Code's user (global) scope, so the
-`codex` / `copilot` tools are available from any project — not just the
-directories above:
+Use these when Claude normally handles implementation itself and you only want
+to delegate individual tasks.
+
+### Project orchestrators
+
+`opus5-*-orchestrator/CLAUDE.md` defines a project-scoped, always-on delegation
+policy.
+
+When Claude Code is started inside one of these projects, Claude acts as the
+orchestrator for the whole session:
+
+```text
+Claude Opus
+    ↓
+task definition / scope / acceptance criteria
+    ↓
+Codex CLI or Copilot CLI
+    ↓
+implementation + tests
+    ↓
+Claude review / verification
+```
+
+Use this mode when the project is delegation-first by design.
+
+## Workers
+
+### Codex CLI
+
+Codex is invoked directly from Claude through the shell using non-interactive
+commands such as:
 
 ```bash
-claude mcp list
+codex exec --sandbox workspace-write --json ...
 ```
 
-The always-on delegation policy in `opus5-*-orchestrator/CLAUDE.md` only
-applies inside those specific directories, though — elsewhere, the tools sit
-idle until a `*-delegate` skill invokes them.
+Claude owns task definition, model selection, scope control, diff review, and
+independent verification.
+
+Codex owns implementation, source edits, tests, and corrective passes.
+
+No Codex MCP server is required.
+
+The delegation skill can select different Codex models depending on the task,
+with Terra as the default implementation worker and escalation to stronger
+models only when justified by an observed failure.
+
+### Copilot CLI
+
+Copilot CLI is used for environments where GitHub Copilot is the preferred
+worker.
+
+Unlike the Codex setup in this repository, Copilot is exposed to Claude through
+the custom MCP bridge under:
+
+```text
+opus5-copilot-orchestrator/bridge/
+```
+
+See that project's README for setup details.
+
+## Usage
+
+For occasional delegation, install or symlink the desired skill into Claude
+Code's global skills directory and explicitly request delegation.
+
+For delegation-first development, start Claude Code inside one of the
+`opus5-*-orchestrator` projects.
+
+The two mechanisms are intentionally separate:
+
+```text
+global skill
+  -> explicit, one-task delegation
+
+project CLAUDE.md
+  -> always-on orchestration
+```
+
+A delegation rule only applies where it is configured. Installing the global
+skill does not make every project delegation-first.
+
