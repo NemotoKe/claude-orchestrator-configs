@@ -36,6 +36,18 @@ different philosophy.
    explicitly.
 4. Define acceptance criteria before calling the tool.
 
+## Build the delegated task
+
+Before writing or sending an implementation task, use the
+`break-down-task-creator` skill to turn the rough request into a concise,
+self-contained implementation prompt. Treat its output as the task body and
+preserve its objective, requirements, constraints, acceptance criteria, TDD
+scenarios, and non-goals.
+
+Add only Copilot-specific invocation details around that prompt, such as the
+selected model or reasoning effort. Do not make the task depend on Copilot, a
+particular model, or a reasoning mode unless that is an explicit requirement.
+
 ## Calling the tool
 
 Use the `copilot` MCP tool's `prompt` argument for a self-contained
