@@ -100,6 +100,21 @@ See that project's README for setup details.
 
 ## Usage
 
+To copy one orchestrator configuration into another project, run the setup
+script from that project's root. The script accepts `codex` or `copilot` and
+copies the matching `CLAUDE.md`, the common skills, and only the selected
+agent's delegation skill into `.agents/skills`:
+
+```bash
+/path/to/claude-orchestrator-configs/setup-project.sh codex
+# or
+/path/to/claude-orchestrator-configs/setup-project.sh copilot
+```
+
+The destination is the current directory. Existing files with the same names
+are overwritten. `.agents/skills` is the project-local skills location shared
+by Codex and Copilot CLI.
+
 For occasional delegation, install or symlink the desired skill into Claude
 Code's global skills directory and explicitly request delegation.
 
@@ -118,4 +133,3 @@ project CLAUDE.md
 
 A delegation rule only applies where it is configured. Installing the global
 skill does not make every project delegation-first.
-
