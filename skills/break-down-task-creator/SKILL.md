@@ -1,6 +1,6 @@
 ---
 name: break-down-task-creator
-description: Transform rough engineering tasks into concise, self-contained implementation prompts for coding agents or subagents, with strict Test-Driven Development as the required implementation process.
+description: Transform rough engineering tasks into concise, self-contained implementation prompts for coding agents or subagents, each declaring a complexity tier and default-FAIL acceptance criteria, with strict Test-Driven Development as the required implementation process for Tier 2 and Tier 3 units.
 ---
 
 # Break Down Task Creator
@@ -13,7 +13,11 @@ Keep the prompt independent of any particular model, provider, CLI, or reasoning
 mode. The caller may add worker-specific invocation details after generating the
 prompt, but the task itself must remain portable across implementation agents.
 
-The generated prompt must drive implementation using Test-Driven Development (TDD).
+The generated prompt must declare the unit's complexity tier and emit acceptance
+criteria in default-FAIL form.
+
+The generated prompt must drive implementation using Test-Driven Development
+(TDD) for Tier 2 and Tier 3 units.
 
 ## Core Principles
 
@@ -35,6 +39,13 @@ Before making changes, inspect the relevant production code, existing tests, con
 Prefer the repository's existing design unless it conflicts with the requested behavior.
 
 ### 3. TDD is the implementation process
+
+Required for Tier 2 and Tier 3 units.
+
+Tier 1 units are exempt: they change no behavior, so there is no Red → Green
+cycle to run. The exemption follows from the absence of behavior, not from
+testing being inconvenient. If a unit classified Tier 1 turns out to change
+behavior, it was misclassified — escalate it and TDD applies.
 
 All behavioral changes must follow:
 
@@ -64,11 +75,43 @@ Do not perform unrelated refactoring.
 
 ---
 
+## Complexity Tiers
+
+Classify every implementation unit into exactly one tier. The classification is
+made here, not left to the implementation agent's intuition and not re-derived
+downstream.
+
+The tier selects which verification agents run after implementation. A unit
+classified too low silently loses the verification it needed: no reviewer means
+no PASS verdict, and no evidence means its criteria stay FAIL.
+
+| Tier | Applies to | Pipeline |
+|---|---|---|
+| 1 — direct | No behavioral change: docs, comments, formatting, config values with no runtime effect, renames that do not change call-site semantics | implement only; the orchestrator verifies by reading the diff. No test-builder, no reviewer. |
+| 2 — standard | Bounded behavioral change inside one component, already covered by existing test infrastructure | implement → integration-reviewer. Insert integration-test-builder only if the reviewer returns `FAIL (unverifiable)`. |
+| 3 — full | Crosses component boundaries, or touches persistence, an external API, concurrency, a migration, auth, or anything security-relevant | implement → integration-test-builder → integration-reviewer. |
+
+Rules:
+
+- Default to Tier 2 when the tier is unclear.
+- Any unit whose criteria touch persistence, an external boundary, concurrency,
+  or security is Tier 3 regardless of how small the diff is.
+- Escalate on observed evidence at any time. Never de-escalate mid-unit.
+- Classify a unit by the highest tier any part of it reaches.
+
+---
+
 ## Prompt Structure
 
 ### Objective
 
 Describe the desired end state in 1–3 sentences.
+
+### Complexity Tier
+
+Declare exactly one tier — `Tier 1 — direct`, `Tier 2 — standard`, or
+`Tier 3 — full` — with a one-line justification naming the rule that produced
+it. Classify per "Complexity Tiers" above.
 
 ### Context
 
@@ -89,7 +132,33 @@ Specify invariants and boundaries such as:
 
 ### Acceptance Criteria
 
-Define independently verifiable completion conditions.
+Define completion conditions in the shape the orchestrator transcribes directly
+into `.agents/criteria.md`. Target format: `templates/criteria.md`.
+
+Each criterion is:
+
+- numbered, starting at 1
+- one observable outcome — not a list, not a conjunction
+- independently verifiable, without checking another criterion first
+- tagged with its unit id (U1, U2, ...)
+
+Emit one row per criterion:
+
+`| <n> | <unit id> | <criterion> | FAIL | — |`
+
+Use the unit id the caller assigned. If the caller supplied none, label the unit
+U1 and say so, so the orchestrator can renumber.
+
+Every criterion starts at **FAIL**. A criterion moves to PASS only when the
+integration-reviewer returns a PASS verdict for it with cited evidence; for a
+Tier 1 unit, which runs no reviewer, only on the orchestrator's diff review.
+Never emit a criterion already marked PASS, and never emit a status other than
+FAIL.
+
+Do not emit a criterion whose evidence cannot be described. For each one, state
+what would demonstrate it: the command and its observed result, the test that
+covers it, or the file and line to inspect. A criterion with no describable
+evidence is restated until it has one, or moved to Non-goals.
 
 ### TDD Scenarios
 
@@ -104,6 +173,9 @@ Focus on:
 
 Do not prescribe exact test code unless necessary.
 
+Omit this section for Tier 1 units — no behavior changes, so there is nothing to
+drive.
+
 ### Non-goals
 
 Explicitly identify adjacent work that should not be performed when useful.
@@ -114,7 +186,12 @@ Explicitly identify adjacent work that should not be performed when useful.
 
 Inspect the relevant repository code and existing tests before changing anything.
 
-Implement the task using strict TDD.
+For a Tier 2 or Tier 3 unit, implement the task using strict TDD.
+
+For a Tier 1 unit, make the change directly and report the diff for the
+orchestrator to review. Do not add tests for behavior that did not change. If
+implementing the unit requires a behavioral change, stop and report the
+misclassification instead of proceeding.
 
 For each behavioral increment:
 
@@ -141,9 +218,10 @@ If repository evidence contradicts an assumption in the prompt, follow the repos
 
 At completion, report:
 
+- declared complexity tier, and any escalation made during the unit
 - changed files
 - implemented behavior
-- Red → Green cycles performed
+- Red → Green cycles performed (Tier 2 and Tier 3)
 - tests added or changed
 - tests/checks executed
 - relevant design decisions
