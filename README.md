@@ -7,26 +7,32 @@ instead of implementing everything itself.
 ## Layout
 
 ```text
+hooks/
+  validate-delegation.sh       PreToolUse hook — deny a Codex delegation whose prompt is structurally incomplete
+
 skills/
   break-down-task-creator/     Turn a rough task into a self-contained prompt with a tier and default-FAIL criteria
   codex-delegate/              Global skill — delegate one task to Codex CLI
   copilot-delegate/            Global skill — delegate one task to Copilot CLI
+  delegation-prompt-reviewer/  Read-only Opus subagent — audit a prompt before it is sent, attribute a failure after
   integration-reviewer/        Read-only, evidence-based PASS/FAIL verdict on a finished unit
   integration-test-builder/    Add independently executable integration tests for a unit
 
 templates/
   criteria.md                  Seed for the project's .agents/criteria.md
   progress.md                  Seed for the project's .agents/progress.md
+  prompt-defects.md            Seed for the project's .agents/prompt-defects.md — recorded prompt defects and promotions
 
 opus5-codex-orchestrator/
   CLAUDE.md                    Always-on policy: delegate implementation to Codex CLI
+  settings.json                Hook registration, installed as the project's .claude/settings.json
 
 opus5-copilot-orchestrator/
   CLAUDE.md                    Always-on policy: delegate implementation to Copilot CLI
   README.md                    Setup and usage
   bridge/                      MCP stdio bridge wrapping the Copilot CLI
 
-setup-project.sh               Install a CLAUDE.md, the skills, and the templates into a project
+setup-project.sh               Install a CLAUDE.md, the skills, the templates, and the Codex hook into a project
 ```
 
 ## Two delegation modes
@@ -129,6 +135,66 @@ tiered — the reviewer is the backstop for a unit classified too low, so it mus
 not weaken alongside the tier it is checking. Tiering already bounds how often
 it runs, since a Tier 1 unit never invokes it.
 
+### Prompt feedback loop
+
+The delegated prompt decides what gets built, how it is verified, and what
+counts as done, and it was the one artifact in the loop nothing checked.
+Implementation gets a reviewer and tests get a reviewer; the instruction that
+produces both was sent unexamined. A prompt defect is also the expensive kind:
+it is discovered only after a full implementation round has been spent on it.
+
+Two checks, split by what each can actually decide.
+
+`hooks/validate-delegation.sh` is a `PreToolUse` hook on `Bash`. It reads the
+command, and on anything containing `codex exec` it verifies structure only:
+the required sections (Objective, Complexity Tier, Acceptance Criteria, Allowed
+scope, Non-goals, plus Required tests or TDD Scenarios for Tier 2 and 3, or
+Defect/Evidence/Required correction on a `resume`), a narrow list of phrases
+that point at conversation the worker never saw, and the standing
+`-m gpt-5.6-luna` and `model_reasoning_effort=xhigh` flags. Everything on that
+list is decidable by grep. Nothing on it is a judgment call, deliberately — a
+shell script cannot weigh whether a criterion is verifiable, and a gate that
+fires on ambiguous input is a gate that gets disabled.
+
+`skills/delegation-prompt-reviewer` takes the judgment half: a fresh Claude
+subagent pinned to Opus, read-only, run pre-flight on Tier 2 and Tier 3 units.
+It does not re-check structure — that is settled by the time it sees the prompt.
+It asks whether each criterion names observable evidence, whether every
+load-bearing fact is on the page rather than assumed, whether the scope is
+enumerable, whether the tier fits, and whether the prompt repeats a recorded
+defect. It returns `SEND` or `REVISE` with the replacement text, and never
+rewrites the prompt itself.
+
+The distinction that matters: the hook is the only check in this repository
+that runs whether or not the model complied. Everything else here — the tiers,
+the default-FAIL rule, the reviewer stages — is a policy the model is asked to
+follow.
+
+`templates/prompt-defects.md` is what makes this a loop rather than a gate. On
+any failure the same subagent runs in attribution mode and answers one
+question: would a competent worker following this prompt exactly have produced
+this failure? Yes means prompt defect, recorded as a reusable pattern; no means
+implementation defect, fixed by a corrective pass and recorded nowhere. Unclear
+defaults to prompt defect, because a misfiled implementation defect costs one
+wasted row while a misfiled prompt defect costs the same failure on every future
+task.
+
+The record carries a `Seen` count, and a pattern seen twice is promoted: it
+stops being a per-task correction and gets written into the project's
+`CLAUDE.md` conventions. Anything that has to be explained to a worker twice is
+a convention that was never written down. Unlike `criteria.md` and
+`progress.md`, this file outlives the task.
+
+Operationally: the hook denies the Bash call outright and returns the reason to
+the orchestrator, listing what is missing; the fix is to rewrite the prompt, not
+to route around the hook. If `jq` is not installed it fails open — it prints a
+warning that prompts are not being validated and allows the call, since a broken
+hook that blocks every Bash command is worse than an absent one. The registered
+command uses a path relative to the project root
+(`sh .agents/hooks/validate-delegation.sh`); if the hook does not appear to
+fire, replace it with an absolute path and confirm the registration with
+`/hooks`.
+
 ### State files
 
 `.agents/criteria.md` and `.agents/progress.md` live in the target project,
@@ -215,8 +281,15 @@ are overwritten. `.agents/skills` is the project-local skills location shared
 by Codex and Copilot CLI.
 
 The script installs only the templates. It never creates or overwrites a live
-`.agents/criteria.md` or `.agents/progress.md` — the orchestrator writes those
-per task from the installed templates.
+`.agents/criteria.md`, `.agents/progress.md`, or `.agents/prompt-defects.md` —
+the orchestrator writes those per task from the installed templates.
+
+On the `codex` path the script also installs the delegation hook to
+`.agents/hooks/validate-delegation.sh`, marks it executable, and registers it by
+writing `.claude/settings.json`. The Copilot path has no hook yet. An existing
+`.claude/settings.json` is never overwritten: the fragment is written to
+`.claude/settings.json.orchestrator-fragment` instead, and the script prints a
+message to merge its `hooks.PreToolUse` entry by hand.
 
 For occasional delegation, install or symlink the desired skill into Claude
 Code's global skills directory and explicitly request delegation.
