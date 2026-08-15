@@ -184,7 +184,19 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
 
 ### Reviewer invocation
 
-The reviewer does not run on Codex. Run it as a **fresh Claude subagent**.
+The reviewer does not run on Codex. Run it as a **fresh Claude subagent pinned
+to Opus**.
+
+Pin the model explicitly rather than letting the subagent inherit it. An
+inherited model makes the strength of the final gate depend on how the
+orchestrator session happened to be started, and a gate that quietly weakens is
+worse than a gate you know is weak.
+
+Do not tier the reviewer's model the way the pipeline is tiered. The reviewer
+is what catches a unit that was classified too low; if it weakened along with
+the tier, a misclassified unit would get both the thinner pipeline and the
+weaker gate at once. Tiering already limits the cost — a Tier 1 unit never
+invokes the reviewer at all.
 
 Review is the hardest judgment in the loop — deciding whether a test could pass
 despite a wrong implementation, whether a mock hides the behavior that matters,
@@ -237,7 +249,7 @@ re-review in a new subagent.
 | implementation | Codex `gpt-5.6-luna` at `model_reasoning_effort=xhigh` |
 | corrective pass | the same Codex session, same model and effort |
 | `integration-test-builder` | a separate Codex session, same model and effort |
-| `integration-reviewer` | a fresh Claude subagent — not Codex |
+| `integration-reviewer` | a fresh Claude subagent pinned to Opus — not Codex |
 
 Use `gpt-5.6-luna` with `model_reasoning_effort=xhigh` for every task Codex
 performs.

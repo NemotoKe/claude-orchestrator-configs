@@ -37,11 +37,15 @@ boundary, concurrency, or security is Tier 3 regardless of diff size.
 
 Implementation and `integration-test-builder` are separate Codex invocations.
 
-`integration-reviewer` does not run on Codex. Run it as a fresh Claude
-subagent, and not from this session: you defined the task and watched the
+`integration-reviewer` does not run on Codex. Run it as a fresh Claude subagent
+pinned to Opus, and not from this session: you defined the task and watched the
 implementation land, so you are the party most likely to confirm your own
 framing. Give the subagent the acceptance criteria, the changed files, and the
 test results — not the implementer's report, not your own assessment.
+
+Pin the model rather than inheriting it, and do not tier it. The reviewer is
+the backstop for a unit classified too low, so it must not weaken alongside the
+tier it is checking. Tiering already bounds the cost: Tier 1 never invokes it.
 
 Review is the hardest judgment in the loop and the only stage that writes
 nothing, which is what lets it sit on the Claude side without breaking the rule

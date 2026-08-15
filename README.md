@@ -109,8 +109,9 @@ coverage is FAIL (unverifiable), and the orchestrator re-delegates to
 `integration-test-builder` rather than letting the reviewer supply the missing
 tests itself.
 
-On the Codex path the reviewer runs as a **fresh Claude subagent rather than on
-Codex**. Deciding whether a test could pass despite a wrong implementation, or
+On the Codex path the reviewer runs as a **fresh Claude subagent pinned to Opus
+rather than on Codex**. Deciding whether a test could pass despite a wrong
+implementation, or
 whether a mock hides the behavior that matters, is the hardest judgment in the
 loop, and Luna is the low-cost, weakest worker in the pipeline — the wrong
 place for the final gate. Because the reviewer writes nothing, moving it to the
@@ -121,6 +122,12 @@ It is a subagent, not the orchestrator session. The orchestrator defined the
 task and watched the implementation land, so it is the party most likely to
 confirm its own framing; the reviewer gets the criteria, the changed files, and
 the test results, and nothing else.
+
+The model is pinned rather than inherited, so the strength of the gate does not
+depend on how the orchestrator session was started, and it is deliberately not
+tiered — the reviewer is the backstop for a unit classified too low, so it must
+not weaken alongside the tier it is checking. Tiering already bounds how often
+it runs, since a Tier 1 unit never invokes it.
 
 ### State files
 
@@ -170,7 +177,7 @@ sits on the Claude side.
 | implementation | Codex `gpt-5.6-luna` at xhigh |
 | corrective pass | the same Codex session |
 | `integration-test-builder` | a separate Codex session |
-| `integration-reviewer` | a fresh Claude subagent — not Codex |
+| `integration-reviewer` | a fresh Claude subagent pinned to Opus — not Codex |
 
 This is the Codex worker's policy only. The Copilot worker keeps its own
 `luna`/`terra`/`sol` tier table with `terra` as the default.
