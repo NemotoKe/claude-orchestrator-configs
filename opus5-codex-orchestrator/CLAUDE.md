@@ -35,8 +35,18 @@ Default to Tier 2 when unsure. Escalate on observed evidence at any time; never
 de-escalate mid-unit. Any unit whose criteria touch persistence, an external
 boundary, concurrency, or security is Tier 3 regardless of diff size.
 
-Keep each stage a separate Codex invocation. Give `integration-reviewer` a
-fresh session so the review is not anchored on the implementer's conclusions.
+Implementation and `integration-test-builder` are separate Codex invocations.
+
+`integration-reviewer` does not run on Codex. Run it as a fresh Claude
+subagent, and not from this session: you defined the task and watched the
+implementation land, so you are the party most likely to confirm your own
+framing. Give the subagent the acceptance criteria, the changed files, and the
+test results — not the implementer's report, not your own assessment.
+
+Review is the hardest judgment in the loop and the only stage that writes
+nothing, which is what lets it sit on the Claude side without breaking the rule
+that Claude does not write application source. Luna is the low-cost, weakest
+worker in the pipeline and is the wrong place for the final gate.
 
 The reviewer is read-only: no fixes, no added tests. A criterion with no
 meaningful coverage is FAIL (unverifiable) — re-delegate to

@@ -1,6 +1,6 @@
 ---
 name: codex-cli-delegation
-description: Delegate independently evaluable, bounded implementation tasks to Codex CLI using gpt-5.6-luna with xhigh reasoning, while the outer agent owns repository inspection, task decomposition, acceptance criteria, complexity tiering, diff review, independent verification, per-unit commits, and the .agents/criteria.md and .agents/progress.md state files that carry work across sessions. Use when the user explicitly asks to delegate implementation to Codex CLI.
+description: Delegate independently evaluable, bounded implementation tasks to Codex CLI using gpt-5.6-luna with xhigh reasoning, while the outer agent owns repository inspection, task decomposition, acceptance criteria, complexity tiering, diff review, per-unit commits, and the .agents/criteria.md and .agents/progress.md state files that carry work across sessions. Final verification runs as a fresh read-only Claude subagent rather than on Codex. Use when the user explicitly asks to delegate implementation to Codex CLI.
 ---
 
 # Codex CLI delegation
@@ -154,7 +154,7 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
 
 ### Tier 2 — standard
 
-1. Start a separate Luna xhigh invocation with a fresh session using the
+1. Run the reviewer in a fresh Claude subagent using the
    `integration-reviewer` skill (read `skills/integration-reviewer/SKILL.md`
    when using the repository-local copy). See "Reviewer invocation".
 2. When every criterion comes back `PASS`, accept the unit.
@@ -173,8 +173,8 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
    repository-local copy). Give it only the current unit's requirements,
    acceptance criteria, changed files, and relevant test results. Have it add
    or improve independently executable integration tests and run them.
-2. Start another separate Luna xhigh invocation using the
-   `integration-reviewer` skill in a fresh session. See "Reviewer invocation".
+2. Run the reviewer in a fresh Claude subagent using the
+   `integration-reviewer` skill. See "Reviewer invocation".
 3. When every criterion comes back `PASS`, accept the unit.
 4. When any criterion comes back `FAIL (unverifiable)`, re-run the test-builder
    for the uncovered criteria only, then re-run the reviewer in another fresh
@@ -184,7 +184,22 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
 
 ### Reviewer invocation
 
-The reviewer is read-only. State this in the delegated prompt:
+The reviewer does not run on Codex. Run it as a **fresh Claude subagent**.
+
+Review is the hardest judgment in the loop — deciding whether a test could pass
+despite a wrong implementation, whether a mock hides the behavior that matters,
+and whether cited evidence actually supports a criterion. Luna is the low-cost
+tier and is the weakest worker in the pipeline, so it is the wrong place to put
+the final gate. The reviewer is also the one stage that writes nothing, which is
+what makes it eligible to move to the Claude side without breaking the rule that
+Claude does not write application source.
+
+Do not review from the orchestrator session. You defined the task, chose the
+scope, and watched the implementation land; you are the party most likely to
+confirm your own framing. The subagent must start with a context that has never
+seen any of that.
+
+The reviewer is read-only. State this in its prompt:
 
 * It has no write access to the repository. It must not edit source, tests,
   configuration, or the state files.
@@ -198,27 +213,47 @@ The reviewer is read-only. State this in the delegated prompt:
   is not evidence.
 
 Give it the unit's acceptance criteria, the changed files, and the test
-results. Do not give it the implementer's completion report, conclusions, or
-session id. If it edits anything anyway, treat the run as invalid, restore the
-files, and re-review in a new fresh session.
+results — and nothing else. Do not give it the implementer's completion report,
+its conclusions, its session id, your own assessment of the change, or the
+reasoning behind the task decomposition. Every one of those imports the
+conclusion you are asking it to check independently.
+
+If it edits anything anyway, treat the run as invalid, restore the files, and
+re-review in a new subagent.
 
 ### Applies to every tier
 
 * Each Codex invocation carries exactly one unit.
-* Implementation, `integration-test-builder`, and `integration-reviewer` are
-  always separate invocations with fresh sessions.
+* Implementation and `integration-test-builder` are always separate Codex
+  invocations with fresh sessions. `integration-reviewer` is a separate Claude
+  subagent, also with a fresh context.
 * Do not apply this loop recursively to test-builder or reviewer tasks.
 * A unit is complete only when its criteria are PASS in `.agents/criteria.md`.
 
 ## Model and reasoning effort
 
-Use `gpt-5.6-luna` with `model_reasoning_effort=xhigh` for every delegated task,
-including corrective passes and verification work performed by Codex.
+| Stage | Runs on |
+|---|---|
+| implementation | Codex `gpt-5.6-luna` at `model_reasoning_effort=xhigh` |
+| corrective pass | the same Codex session, same model and effort |
+| `integration-test-builder` | a separate Codex session, same model and effort |
+| `integration-reviewer` | a fresh Claude subagent — not Codex |
 
-Do not silently switch to Terra, Sol, a lower reasoning effort, or Ultra. Ultra
-may introduce Codex-managed subagents, which duplicates the outer orchestrator
-role. If Luna or xhigh is unavailable, stop and report the blocker instead of
-downgrading the task.
+Use `gpt-5.6-luna` with `model_reasoning_effort=xhigh` for every task Codex
+performs.
+
+Luna is the low-cost tier and the weakest of the three; Terra and Sol are
+stronger. Running Luna for all Codex work is a deliberate cost choice, not a
+claim that it is the best available worker — which is why xhigh effort, strict
+TDD, and the acceptance criteria carry the weight instead of raw model
+capability, and why the final gate sits on the Claude side rather than here.
+
+Do not switch models or lower the reasoning effort on your own. Moving to Terra
+or Sol is an escalation, not a downgrade, and it is the user's call: report the
+specific failure that would justify it rather than escalating silently. Do not
+use Ultra at all — it may introduce Codex-managed subagents, which duplicates
+the outer orchestrator role. If Luna or xhigh is unavailable, stop and report
+the blocker.
 
 ## Review and verify
 

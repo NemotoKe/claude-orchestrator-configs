@@ -109,6 +109,19 @@ coverage is FAIL (unverifiable), and the orchestrator re-delegates to
 `integration-test-builder` rather than letting the reviewer supply the missing
 tests itself.
 
+On the Codex path the reviewer runs as a **fresh Claude subagent rather than on
+Codex**. Deciding whether a test could pass despite a wrong implementation, or
+whether a mock hides the behavior that matters, is the hardest judgment in the
+loop, and Luna is the low-cost, weakest worker in the pipeline — the wrong
+place for the final gate. Because the reviewer writes nothing, moving it to the
+Claude side does not breach the rule that Claude never writes application
+source.
+
+It is a subagent, not the orchestrator session. The orchestrator defined the
+task and watched the implementation land, so it is the party most likely to
+confirm its own framing; the reviewer gets the criteria, the changed files, and
+the test results, and nothing else.
+
 ### State files
 
 `.agents/criteria.md` and `.agents/progress.md` live in the target project,
@@ -140,11 +153,24 @@ Codex owns implementation, source edits, tests, and corrective passes.
 No Codex MCP server is required.
 
 Every Codex delegation uses `gpt-5.6-luna` with `model_reasoning_effort=xhigh`,
-including corrective passes and verification work performed by Codex. There is
+including corrective passes and the `integration-test-builder` stage. There is
 no silent switch to Terra, Sol, a lower reasoning effort, or Ultra — Ultra can
 introduce Codex-managed subagents and duplicate the orchestrator role. If Luna
-or xhigh is unavailable, the delegation stops and reports the blocker instead
-of downgrading.
+or xhigh is unavailable, the delegation stops and reports the blocker. Moving
+to Terra or Sol is an escalation rather than a downgrade, and it is the user's
+call.
+
+Luna is the low-cost, weakest of the three tiers. Running it for all Codex work
+is a deliberate cost choice; the acceptance criteria, strict TDD, and xhigh
+effort carry the weight instead of raw model capability, and the final gate
+sits on the Claude side.
+
+| Stage | Runs on |
+|---|---|
+| implementation | Codex `gpt-5.6-luna` at xhigh |
+| corrective pass | the same Codex session |
+| `integration-test-builder` | a separate Codex session |
+| `integration-reviewer` | a fresh Claude subagent — not Codex |
 
 This is the Codex worker's policy only. The Copilot worker keeps its own
 `luna`/`terra`/`sol` tier table with `terra` as the default.
