@@ -9,8 +9,8 @@ Usage: setup-project.sh codex|copilot
 Copy the selected orchestrator's CLAUDE.md, the applicable skills, and the
 state-file templates into the current project directory under .agents.
 
-For codex, also install the delegation-prompt hook and register it in
-.claude/settings.json.
+For codex and copilot, also install the delegation-prompt hook and register
+it in .claude/settings.json.
 EOF
 }
 
@@ -62,7 +62,7 @@ if [ ! -d "$source_templates" ]; then
     exit 1
 fi
 
-if [ "$agent" = "codex" ]; then
+if [ "$agent" = "codex" ] || [ "$agent" = "copilot" ]; then
     if [ ! -d "$source_hooks" ]; then
         echo "Error: source directory not found: $source_hooks" >&2
         exit 1
@@ -121,7 +121,7 @@ for template_file in "$source_templates"/*.md; do
     echo "Copied template: .agents/templates/$template_name"
 done
 
-if [ "$agent" = "codex" ]; then
+if [ "$agent" = "codex" ] || [ "$agent" = "copilot" ]; then
     mkdir -p "$destination_hooks"
 
     cp "$source_hook" "$destination_hook"

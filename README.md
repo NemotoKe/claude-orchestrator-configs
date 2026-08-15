@@ -8,7 +8,7 @@ instead of implementing everything itself.
 
 ```text
 hooks/
-  validate-delegation.sh       PreToolUse hook — deny a Codex delegation whose prompt is structurally incomplete
+  validate-delegation.sh       PreToolUse hook — deny a Codex or Copilot delegation whose prompt is structurally incomplete
 
 skills/
   break-down-task-creator/     Turn a rough task into a self-contained prompt with a tier and default-FAIL criteria
@@ -26,14 +26,15 @@ templates/
 
 opus5-codex-orchestrator/
   CLAUDE.md                    Always-on policy: delegate implementation to Codex CLI
-  settings.json                Hook registration, installed as the project's .claude/settings.json
+  settings.json                Hook registration (Bash/`codex exec`), installed as the project's .claude/settings.json
 
 opus5-copilot-orchestrator/
   CLAUDE.md                    Always-on policy: delegate implementation to Copilot CLI
   README.md                    Setup and usage
   bridge/                      MCP stdio bridge wrapping the Copilot CLI
+  settings.json                Hook registration (the bridge's `copilot`/`copilot_reply` MCP tools), installed as the project's .claude/settings.json
 
-setup-project.sh               Install a CLAUDE.md, the skills, the templates, and the Codex hook into a project
+setup-project.sh               Install a CLAUDE.md, the skills, the templates, and the delegation-prompt hook into a project
 ```
 
 ## Two delegation modes
@@ -144,41 +145,49 @@ Implementation gets a reviewer and tests get a reviewer; the instruction that
 produces both was sent unexamined. A prompt defect is also the expensive kind:
 it is discovered only after a full implementation round has been spent on it.
 
-Two checks, split by what each can actually decide.
+Two checks, split by what each can actually decide, and both cover both
+workers.
 
-`hooks/validate-delegation.sh` is a `PreToolUse` hook on `Bash`. It reads the
-command, and on anything containing `codex exec` it verifies structure only:
-the required sections (Objective, Complexity Tier, Acceptance Criteria, Allowed
-scope, Non-goals, plus Required tests or TDD Scenarios for Tier 2 and 3, or
-Defect/Evidence/Required correction on a `resume`), a narrow list of phrases
-that point at conversation the worker never saw, and the standing
-`-m gpt-5.6-luna` and `model_reasoning_effort=xhigh` flags. Everything on that
-list is decidable by grep. Nothing on it is a judgment call, deliberately — a
-shell script cannot weigh whether a criterion is verifiable, and a gate that
-fires on ambiguous input is a gate that gets disabled.
+`hooks/validate-delegation.sh` is a `PreToolUse` hook. On the Codex path it
+matches `Bash` and reads the command; on the Copilot path it matches the
+bridge's `copilot`/`copilot_reply` MCP tool calls and reads the `prompt`
+argument. Either way it verifies structure only: the required sections
+(Objective, Complexity Tier, Acceptance Criteria, Allowed scope, Non-goals,
+plus Required tests or TDD Scenarios for Tier 2 and 3, or Defect/Evidence/
+Required correction on a corrective pass) and a narrow list of phrases that
+point at conversation the worker never saw. Codex delegations get one more
+check — the standing `-m gpt-5.6-luna` and `model_reasoning_effort=xhigh`
+flags — that does not carry over to Copilot, which has no single fixed model
+to check for; its model choice is a legitimate per-task judgment (see Copilot
+CLI below), not something a script should gate. Everything the hook does check
+is decidable by grep. Nothing on it is a judgment call, deliberately — a shell
+script cannot weigh whether a criterion is verifiable, and a gate that fires on
+ambiguous input is a gate that gets disabled.
 
 `skills/delegation-prompt-reviewer` takes the judgment half: a fresh Claude
-subagent pinned to Opus, read-only, run pre-flight on Tier 2 and Tier 3 units.
-It does not re-check structure — that is settled by the time it sees the prompt.
-It asks whether each criterion names observable evidence, whether every
-load-bearing fact is on the page rather than assumed, whether the scope is
-enumerable, whether the tier fits, and whether the prompt repeats a recorded
-defect. It returns `SEND` or `REVISE` with the replacement text, and never
-rewrites the prompt itself.
+subagent pinned to Opus, read-only, run pre-flight on Tier 2 and Tier 3 units
+on either worker. It does not re-check structure — that is settled by the time
+it sees the prompt. It asks whether each criterion names observable evidence,
+whether every load-bearing fact is on the page rather than assumed, whether the
+scope is enumerable, whether the tier fits, and whether the prompt repeats a
+recorded defect. It returns `SEND` or `REVISE` with the replacement text, and
+never rewrites the prompt itself.
 
 The distinction that matters: the hook is the only check in this repository
 that runs whether or not the model complied. Everything else here — the tiers,
 the default-FAIL rule, the reviewer stages — is a policy the model is asked to
 follow.
 
-`templates/prompt-defects.md` is what makes this a loop rather than a gate. On
-any failure the same subagent runs in attribution mode and answers one
-question: would a competent worker following this prompt exactly have produced
-this failure? Yes means prompt defect, recorded as a reusable pattern; no means
-implementation defect, fixed by a corrective pass and recorded nowhere. Unclear
-defaults to prompt defect, because a misfiled implementation defect costs one
-wasted row while a misfiled prompt defect costs the same failure on every future
-task.
+`templates/prompt-defects.md` is what makes this a loop rather than a gate, and
+the record is shared: a pattern recorded from a Codex unit applies to a Copilot
+unit and vice versa, since both are read at every session start regardless of
+worker. On any failure the same subagent runs in attribution mode and answers
+one question: would a competent worker following this prompt exactly have
+produced this failure? Yes means prompt defect, recorded as a reusable pattern;
+no means implementation defect, fixed by a corrective pass and recorded
+nowhere. Unclear defaults to prompt defect, because a misfiled implementation
+defect costs one wasted row while a misfiled prompt defect costs the same
+failure on every future task.
 
 The record carries a `Seen` count, and a pattern seen twice is promoted: it
 stops being a per-task correction and gets written into the project's
@@ -186,15 +195,18 @@ stops being a per-task correction and gets written into the project's
 a convention that was never written down. Unlike `criteria.md` and
 `progress.md`, this file outlives the task.
 
-Operationally: the hook denies the Bash call outright and returns the reason to
-the orchestrator, listing what is missing; the fix is to rewrite the prompt, not
-to route around the hook. If `jq` is not installed it fails open — it prints a
-warning that prompts are not being validated and allows the call, since a broken
-hook that blocks every Bash command is worse than an absent one. The registered
-command uses a path relative to the project root
+Operationally: the hook denies the tool call outright and returns the reason to
+the orchestrator, listing what is missing; the fix is to rewrite the prompt,
+not to route around the hook. If `jq` is not installed it fails open — it
+prints a warning that prompts are not being validated and allows the call,
+since a broken hook that blocks every delegation is worse than an absent one.
+The registered command uses a path relative to the project root
 (`sh .agents/hooks/validate-delegation.sh`); if the hook does not appear to
 fire, replace it with an absolute path and confirm the registration with
-`/hooks`.
+`/hooks`. The Copilot registration's matcher assumes the bridge is registered
+as MCP server `copilot`; if it is registered under a different name, update
+the matcher in `opus5-copilot-orchestrator/settings.json` — the hook script
+itself matches by tool-name suffix and needs no change.
 
 ### State files
 
@@ -285,7 +297,10 @@ This is the Codex worker's policy only. The Copilot worker keeps its own
 ### Copilot CLI
 
 Copilot CLI is used for environments where GitHub Copilot is the preferred
-worker.
+worker, or where Codex is unavailable. It carries the same contract as Codex —
+tiers, default-FAIL criteria, the read-only reviewer, the prompt gates, spec-
+driven test building, and both cross-task records — described in detail in
+`skills/copilot-delegate/SKILL.md` and `opus5-copilot-orchestrator/CLAUDE.md`.
 
 Unlike the Codex setup in this repository, Copilot is exposed to Claude through
 the custom MCP bridge under:
@@ -295,6 +310,26 @@ opus5-copilot-orchestrator/bridge/
 ```
 
 See that project's README for setup details.
+
+Copilot has no single fixed model the way Codex is pinned to Luna. `model`
+selects a tier per call, and escalation is evidence-based, not automatic:
+
+| Model | Use for |
+|---|---|
+| `luna` | Mechanical edits, renames, test scaffolding — and `integration-test-builder`, spec-driven or self-directed |
+| `terra` | **Default** — bounded implementation against clear acceptance criteria |
+| `sol` | Non-obvious algorithms, concurrency, tricky migrations, anything `terra` failed at twice |
+
+`integration-reviewer` does not run through any of these tiers. As on the
+Codex path, it is a fresh Claude subagent pinned to Opus — never the Copilot
+worker, at any tier — for the same reason: it is the one stage that writes
+nothing, so it can sit on the Claude side without breaching the rule that
+Claude does not write application source, and the final gate should not run on
+a worker tier chosen for cost.
+
+Model selection is plan-gated on a Copilot account: see the caveats in
+`opus5-copilot-orchestrator/CLAUDE.md` and `opus5-copilot-orchestrator/README.md`
+before trusting the table on a free-tier account.
 
 ## Usage
 
