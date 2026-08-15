@@ -17,7 +17,7 @@ Do this before anything else, including repository inspection.
 1. Check for existing state:
 
    ```bash
-   ls .agents/progress.md .agents/criteria.md
+   ls .agents/progress.md .agents/criteria.md .agents/prompt-defects.md
    ```
 
 2. If either file exists, read both before acting. Resume from the "Next
@@ -30,8 +30,13 @@ Do this before anything else, including repository inspection.
 4. Only when neither file exists, build a fresh plan and continue with "Before
    delegation".
 
-These two files are the memory across sessions. The orchestrator is their only
-writer.
+5. Read `.agents/prompt-defects.md` if it exists. It records prompt failure
+   patterns from earlier work — including earlier tasks — and every prompt you
+   write this session must avoid them.
+
+These files are the memory across sessions. `.agents/criteria.md` and
+`.agents/progress.md` track this task; `.agents/prompt-defects.md` outlives it.
+The orchestrator is the only writer of all three.
 
 ## Before delegation
 
@@ -71,6 +76,43 @@ Codex invocation. Add only Codex-specific invocation details around the prompt.
 2 standard, 3 full). Carry that tier with the unit; it selects the pipeline in
 the per-unit execution loop. If a unit arrives without a tier, treat it as
 Tier 2.
+
+## Check the prompt before sending it
+
+The prompt decides everything downstream. A bad one is not caught cheaply — it
+is caught by a failed implementation round, which is the most expensive place
+to find it. Two gates run before the prompt leaves.
+
+### The hook — structure
+
+`.agents/hooks/validate-delegation.sh` runs as a `PreToolUse` hook on every
+Bash call and denies the tool call outright when a Codex prompt is missing
+required sections, references conversation context the worker does not have, or
+drops the model and effort flags.
+
+It is not advisory. Every other rule in this repository is a policy you are
+asked to follow; this one runs whether or not you followed it. If it denies a
+call, rewrite the prompt — do not restructure the command to slip past the
+check, and do not implement the change yourself instead.
+
+It only checks what a script can decide without judgment. Passing it means the
+prompt is well-formed, not that it is good.
+
+### The reviewer — semantics
+
+For Tier 2 and Tier 3 units, run `delegation-prompt-reviewer` in a fresh Claude
+subagent pinned to Opus before sending. It judges what the hook cannot: whether
+each criterion names evidence that could actually be produced, whether a
+load-bearing fact is assumed rather than stated, whether the scope is really
+bounded, whether the declared tier fits. It returns `SEND` or `REVISE` with
+concrete replacement text.
+
+Tier 1 skips it — a unit that changes no behavior has too little prompt surface
+to audit.
+
+Give it the prompt and `.agents/prompt-defects.md`. Do not give it your
+reasoning for the decomposition; you are asking whether the prompt stands on
+its own, and your rationale is exactly what the worker will not have.
 
 ## Create the criteria file
 
@@ -329,6 +371,40 @@ Then do all four steps below, in order, before starting the next unit.
 
 A unit is complete only when its criteria are PASS in `.agents/criteria.md`.
 Only then start the next unit.
+
+## Attribute the failure before correcting it
+
+Every failure — a reviewer `FAIL`, a `FAIL (unverifiable)`, or anything needing
+a corrective pass — gets attributed first. Run `delegation-prompt-reviewer` in
+Mode B, in a fresh Opus subagent, and ask one question: would a competent
+worker following this prompt exactly have produced this failure?
+
+* **No — implementation defect.** The prompt was adequate. Send the corrective
+  pass below. Record nothing.
+* **Yes — prompt defect.** The worker did what the prompt said. Send the
+  corrective pass *and* add the pattern to `.agents/prompt-defects.md`.
+
+Skipping this step is what turns a feedback loop back into a treadmill. A
+prompt defect patched only by a corrective pass costs the same round again on
+the next unit, and on the next task, because nothing recorded why it happened.
+
+Give the subagent the prompt as sent, what the worker produced, and the
+failure. Not your view of what went wrong — that is the conclusion you are
+asking it to reach independently.
+
+When it returns a prompt defect:
+
+1. Add the pattern to `.agents/prompt-defects.md`, or increment `Seen` on the
+   matching row. Record the reusable shape of the mistake, not this unit's
+   specifics.
+2. If `Seen` reaches 2, promote it: write the rule into the project's
+   `CLAUDE.md` conventions and record the promotion. Anything explained to a
+   worker twice is a convention that was never written down.
+3. Commit the update with the rest of the state files.
+
+Default to prompt defect when the cause is genuinely unclear. A misfiled
+implementation defect wastes one row; a misfiled prompt defect repeats itself
+indefinitely.
 
 ## Corrective pass
 

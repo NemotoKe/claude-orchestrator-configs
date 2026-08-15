@@ -9,8 +9,11 @@ they exist, then resume from the "Next action" recorded in `progress.md`. Do
 not re-plan work that `progress.md` records as complete, and do not re-verify
 criteria already marked PASS unless later work invalidated them.
 
-If those files do not exist, seed them from `.agents/templates/criteria.md` and
-`.agents/templates/progress.md`.
+Also read `.agents/prompt-defects.md`. It carries prompt failure patterns from
+earlier tasks, not just this one, and constrains every prompt you write.
+
+If those files do not exist, seed them from `.agents/templates/criteria.md`,
+`.agents/templates/progress.md`, and `.agents/templates/prompt-defects.md`.
 
 ## Before delegating
 
@@ -20,6 +23,26 @@ If those files do not exist, seed them from `.agents/templates/criteria.md` and
   implementation prompt carrying its complexity tier and acceptance criteria.
 * Write every acceptance criterion into `.agents/criteria.md` at FAIL before
   the first delegation. You are the only writer of that file.
+* Read `.agents/prompt-defects.md` and make sure the prompt repeats none of the
+  patterns recorded there.
+
+## Prompt gates
+
+The prompt is the input to everything else, so it is checked before it is sent.
+
+`.agents/hooks/validate-delegation.sh` runs as a `PreToolUse` hook and denies
+the Bash call when a Codex prompt is missing required sections, references
+conversation context the worker does not have, or drops the model and effort
+flags. It is the only check here that runs whether or not you complied with
+this file. If it denies a call, rewrite the prompt — do not reshape the command
+to evade the check, and do not implement the change yourself instead.
+
+For Tier 2 and Tier 3 units, also run `delegation-prompt-reviewer` in a fresh
+Claude subagent pinned to Opus. The hook decides structure; the subagent
+decides substance — whether a criterion names producible evidence, whether a
+load-bearing fact is assumed rather than stated, whether the tier fits. Give it
+the prompt and the defect record, not your reasoning for the decomposition.
+Tier 1 skips it.
 
 ## Verification pipeline
 
@@ -72,6 +95,25 @@ When a unit's criteria are satisfied:
 4. Commit the state-file update.
 
 Then start the next unit.
+
+## On failure
+
+Before sending a corrective pass, attribute the failure. Run
+`delegation-prompt-reviewer` in Mode B in a fresh Opus subagent and ask whether
+a competent worker following that prompt exactly would have produced this
+failure.
+
+* No — implementation defect. Send the corrective pass; record nothing.
+* Yes — prompt defect. Send the corrective pass, and add the reusable pattern
+  to `.agents/prompt-defects.md` or increment `Seen` on the matching row.
+
+A pattern reaching `Seen` 2 is promoted: write it into this file's conventions
+and record the promotion. Anything explained to a worker twice is a convention
+that was never written down.
+
+Default to prompt defect when the cause is unclear. Skipping attribution is
+what keeps the same mistake in circulation — a prompt defect fixed only by a
+corrective pass recurs on the next task with nothing recorded.
 
 ## Delegation rules
 
