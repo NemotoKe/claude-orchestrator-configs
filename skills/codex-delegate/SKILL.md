@@ -17,7 +17,8 @@ Do this before anything else, including repository inspection.
 1. Check for existing state:
 
    ```bash
-   ls .agents/progress.md .agents/criteria.md .agents/prompt-defects.md
+   ls .agents/progress.md .agents/criteria.md .agents/prompt-defects.md \
+      .agents/repo-facts.md
    ```
 
 2. If either file exists, read both before acting. Resume from the "Next
@@ -34,9 +35,36 @@ Do this before anything else, including repository inspection.
    patterns from earlier work — including earlier tasks — and every prompt you
    write this session must avoid them.
 
+6. Read `.agents/repo-facts.md` if it exists, and treat any fact whose `Paths`
+   changed since its `Observed at` sha as unverified — confirm it before
+   relying on it. Put the facts a unit depends on into the delegated prompt;
+   the worker cannot read this file's authority, only what you restate.
+
 These files are the memory across sessions. `.agents/criteria.md` and
-`.agents/progress.md` track this task; `.agents/prompt-defects.md` outlives it.
-The orchestrator is the only writer of all three.
+`.agents/progress.md` track this task; `.agents/prompt-defects.md` and
+`.agents/repo-facts.md` outlive it. The orchestrator is the only writer of all
+four.
+
+## Recording repository facts
+
+Subagents discover durable facts about the repository in the course of their
+work — how a seam is actually wired, what the test suite requires to run, why
+the obvious approach does not work. That knowledge dies with their context, and
+the next subagent pays to rediscover it.
+
+Subagents do not write it down; that would cost them the read-only property
+their independence rests on. They report, and you transcribe — the same
+arrangement as `.agents/criteria.md`.
+
+When a reviewer, test-builder, or prompt reviewer reports a fact that is
+durable, non-obvious, and not task-specific, add it to `.agents/repo-facts.md`
+with the paths it describes and the current commit sha, and commit it with the
+other state files.
+
+Be strict about what qualifies. This file is read at the start of every future
+session, so a fact that is obvious, redundant, or recoverable by one ripgrep is
+a permanent tax on context that buys nothing. Prefer few high-value entries.
+Task-specific findings belong in `.agents/progress.md` instead.
 
 ## Before delegation
 

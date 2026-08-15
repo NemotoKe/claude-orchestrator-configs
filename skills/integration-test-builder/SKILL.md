@@ -1,6 +1,6 @@
 ---
 name: integration-test-builder
-description: Build requirement-driven integration tests that independently verify an implementation across component boundaries, with emphasis on executability, observability, reproducibility, assertability, and failure localization.
+description: Build requirement-driven integration tests that independently verify an implementation across component boundaries, with emphasis on executability, observability, reproducibility, assertability, and failure localization. Runs spec-driven when a reviewer test specification is supplied, implementing that specification exactly and proving its must-fail-when condition, and self-directed when none is.
 ---
 
 # Integration Test Builder
@@ -10,6 +10,39 @@ description: Build requirement-driven integration tests that independently verif
 Create integration tests that verify whether an implementation satisfies its requirements and acceptance criteria.
 
 The tests must provide independent executable evidence of correctness rather than merely mirroring the implementation.
+
+## Operating Modes
+
+Determine the mode before doing anything else, and state it first in the completion report.
+
+You are **spec-driven** if a reviewer test specification is supplied for this unit — a block naming a criterion, a boundary to exercise, the setup required, the observable to assert, and a must-fail-when condition. Otherwise you are **self-directed**.
+
+Every rule in this document applies in both modes. A specification never licenses a weakened assertion, a mock over the behavior under test, or an expected value read off the implementation.
+
+### Spec-driven — the normal case
+
+The specification is the design. It was produced by a reviewer working from the criterion and the requirements, not from the implementation. Do not re-derive it, do not second-guess it against the code, and do not extend it with scenarios of your own. Your job is construction.
+
+Implement exactly what the specification states:
+
+- cross the **boundary to exercise** as written — no shortcut past a seam, no direct call to an inner function that skips it
+- build the **setup required** as written, deterministically
+- assert the **observable to assert** as written. Do not substitute an easier assertion, a weaker predicate, or a proxy signal because the stated observable is inconvenient
+- do not narrow scope: fewer cases, looser bounds, or a happy path in place of the stated condition are all narrowing
+
+Then prove the test discriminates. Do not skip the **must-fail-when** condition:
+
+1. apply that mutation to the implementation in the working tree
+2. run the test and confirm it fails, and fails for the stated reason
+3. revert the mutation completely and confirm the test passes again
+
+A test that still passes under the must-fail-when mutation does not verify the criterion. Fix the test, not the expectation, and repeat the check.
+
+If the specification is unimplementable — the observable does not exist, the boundary cannot be reached, the setup is impossible in this repository — report that back naming exactly what is missing, and stop. Do not build something adjacent that passes. Silently substituting a weaker test is the failure mode this mode exists to prevent, and it is worse than returning nothing, because it converts a known gap into a false PASS.
+
+### Self-directed
+
+No specification is supplied. Derive scenarios from the requirements yourself, following the workflow below in full.
 
 ## Core Principle: Verifiability
 

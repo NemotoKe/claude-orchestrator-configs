@@ -9,11 +9,21 @@ they exist, then resume from the "Next action" recorded in `progress.md`. Do
 not re-plan work that `progress.md` records as complete, and do not re-verify
 criteria already marked PASS unless later work invalidated them.
 
-Also read `.agents/prompt-defects.md`. It carries prompt failure patterns from
-earlier tasks, not just this one, and constrains every prompt you write.
+Also read `.agents/prompt-defects.md` and `.agents/repo-facts.md`. Both carry
+knowledge from earlier tasks, not just this one: the first constrains every
+prompt you write, the second records durable repository facts. Treat a fact
+whose `Paths` changed since its `Observed at` sha as unverified until
+re-confirmed.
 
-If those files do not exist, seed them from `.agents/templates/criteria.md`,
-`.agents/templates/progress.md`, and `.agents/templates/prompt-defects.md`.
+If those files do not exist, seed them from the matching file in
+`.agents/templates/`.
+
+When a subagent reports a durable, non-obvious, non-task-specific fact about
+the repository, transcribe it into `.agents/repo-facts.md` with its paths and
+the current sha. Subagents never write it themselves — read-only is what makes
+them independent. Be strict: this file is read at the start of every future
+session, so anything obvious or recoverable by one ripgrep is a permanent
+context tax. Task-specific findings go in `.agents/progress.md`.
 
 ## Before delegating
 

@@ -22,6 +22,7 @@ templates/
   criteria.md                  Seed for the project's .agents/criteria.md
   progress.md                  Seed for the project's .agents/progress.md
   prompt-defects.md            Seed for the project's .agents/prompt-defects.md — recorded prompt defects and promotions
+  repo-facts.md                Seed for the project's .agents/repo-facts.md — durable repository facts with the sha they were observed at
 
 opus5-codex-orchestrator/
   CLAUDE.md                    Always-on policy: delegate implementation to Codex CLI
@@ -197,15 +198,48 @@ fire, replace it with an absolute path and confirm the registration with
 
 ### State files
 
-`.agents/criteria.md` and `.agents/progress.md` live in the target project,
-seeded from `templates/`, and are committed as part of the work. They are
-external memory, not scratch files. The orchestrator is their only writer.
+`.agents/criteria.md`, `.agents/progress.md`, `.agents/prompt-defects.md`, and
+`.agents/repo-facts.md` live in the target project, seeded from `templates/`,
+and are committed as part of the work. They are external memory, not scratch
+files. The orchestrator is their only writer.
 
-`progress.md` records completed units, each unit's commit sha, decisions and
-rejected approaches, and the single concrete next action. A new session's first
-act is to read both files and resume from that next action rather than
-re-planning. This closes context loss: sessions accumulate instead of resetting
-when the orchestrator's context window ends.
+`criteria.md` and `progress.md` are scoped to one task. `progress.md` records
+completed units, each unit's commit sha, decisions and rejected approaches, and
+the single concrete next action. A new session's first act is to read the state
+files and resume from that next action rather than re-planning. This closes
+context loss: sessions accumulate instead of resetting when the orchestrator's
+context window ends.
+
+`prompt-defects.md` and `repo-facts.md` outlive the task. The first is
+described under the prompt feedback loop above; the second below.
+
+### Repository facts
+
+`.agents/repo-facts.md` holds durable, non-obvious facts about the repository
+itself: an unwritten convention, what registers what, a module boundary, an env
+var the test suite needs, why an obvious approach does not work. Subagents
+discover these constantly and their context then ends, so the next subagent
+re-derives them from scratch. Anything one ripgrep would answer stays out — the
+file is read at the start of every session, so a cheap fact costs more than it
+saves. Task-specific decisions belong in `progress.md`.
+
+Subagents stay read-only here too. A reviewer or test-builder returns facts in
+its report and the orchestrator transcribes them, the same pattern as
+`criteria.md`.
+
+Staleness is the risk, and a facts file that lies is worse than none. Each row
+records the paths it describes and the commit sha it was observed at. When
+`git diff --name-only <sha>..HEAD -- <paths>` is non-empty the fact is
+unverified: re-confirm it before relying on it and update the sha, or correct
+it. Do not delete a stale fact — a corrected fact is worth more than a missing
+one. Staleness is derived rather than stored, so the marker cannot itself go
+stale.
+
+This is a facts record rather than a graph index deliberately. Multi-hop
+relationship traversal is not the bottleneck in most repositories — ripgrep and
+the file tree are faster and never go stale. An index buys traversal speed and
+pays for it in maintenance and staleness; what is actually scarce is the
+expensively discovered fact that no amount of searching produces.
 
 ## Workers
 
@@ -281,8 +315,9 @@ are overwritten. `.agents/skills` is the project-local skills location shared
 by Codex and Copilot CLI.
 
 The script installs only the templates. It never creates or overwrites a live
-`.agents/criteria.md`, `.agents/progress.md`, or `.agents/prompt-defects.md` —
-the orchestrator writes those per task from the installed templates.
+`.agents/criteria.md`, `.agents/progress.md`, `.agents/prompt-defects.md`, or
+`.agents/repo-facts.md` — the orchestrator writes those from the installed
+templates.
 
 On the `codex` path the script also installs the delegation hook to
 `.agents/hooks/validate-delegation.sh`, marks it executable, and registers it by
