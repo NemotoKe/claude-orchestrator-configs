@@ -62,7 +62,8 @@ Do this before anything else, including repository inspection.
    relying on it. Put the facts a unit depends on into the delegated prompt;
    the worker cannot read this file's authority, only what you restate.
 6. Only when neither `progress.md` nor `criteria.md` exists, build a fresh
-   plan. Seed both from `templates/progress.md` and `templates/criteria.md`.
+   plan. Seed both from `.agents/templates/progress.md` and
+   `.agents/templates/criteria.md`.
 
 These files are the memory across sessions. `.agents/criteria.md` and
 `.agents/progress.md` track this task; `.agents/prompt-defects.md` and
@@ -143,7 +144,8 @@ its own, and your rationale is exactly what the worker will not have.
 ## State files
 
 Two files under `.agents/` carry state across worker calls and across
-sessions, plus two that carry state across tasks. Formats: `templates/*.md`.
+sessions, plus two that carry state across tasks. Formats:
+`.agents/templates/*.md`.
 
 - `.agents/criteria.md` — every acceptance criterion starts at `FAIL` and
   moves to `PASS` only on an integration-reviewer PASS verdict with cited
@@ -203,8 +205,8 @@ size.
 After `break-down-task-creator` has produced the units and their acceptance
 criteria, and before delegating the first unit:
 
-1. Copy `templates/criteria.md` to `.agents/criteria.md`, creating `.agents/`
-   if needed.
+1. Copy `.agents/templates/criteria.md` to `.agents/criteria.md`, creating
+   `.agents/` if needed.
 2. Fill in the task name and date, and add one row per acceptance criterion
    with the unit it belongs to.
 3. Leave every criterion at `FAIL` with an empty evidence cell.

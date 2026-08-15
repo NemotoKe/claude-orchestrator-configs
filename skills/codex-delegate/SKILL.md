@@ -147,8 +147,8 @@ its own, and your rationale is exactly what the worker will not have.
 After `break-down-task-creator` has produced the units and their acceptance
 criteria, and before delegating the first unit:
 
-1. Copy `templates/criteria.md` to `.agents/criteria.md`, creating `.agents/`
-   if needed.
+1. Copy `.agents/templates/criteria.md` to `.agents/criteria.md`, creating
+   `.agents/` if needed.
 2. Fill in the task name and date, and add one row per acceptance criterion
    with the unit it belongs to.
 3. Leave every criterion at `FAIL` with an empty evidence cell.

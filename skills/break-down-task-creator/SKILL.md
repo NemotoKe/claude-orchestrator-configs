@@ -133,7 +133,7 @@ Specify invariants and boundaries such as:
 ### Acceptance Criteria
 
 Define completion conditions in the shape the orchestrator transcribes directly
-into `.agents/criteria.md`. Target format: `templates/criteria.md`.
+into `.agents/criteria.md`. Target format: `.agents/templates/criteria.md`.
 
 Each criterion is:
 
