@@ -203,8 +203,9 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
 3. When any criterion comes back `FAIL (unverifiable)`, start a separate Luna
    xhigh invocation using the `integration-test-builder` skill (read
    `skills/integration-test-builder/SKILL.md` when using the repository-local
-   copy), scoped to the uncovered criteria, then re-run the reviewer in another
-   fresh session. The unit stays Tier 2.
+   copy) in spec-driven mode, carrying the reviewer's test specification for
+   each uncovered criterion. Then re-review in a **new** subagent — see
+   "Spec-driven test building". The unit stays Tier 2.
 4. When any criterion comes back plain `FAIL`, send a corrective pass to the
    implementation session, then re-run the reviewer in a fresh session.
 
@@ -212,17 +213,50 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
 
 1. Start a separate Luna xhigh invocation using the `integration-test-builder`
    skill (read `skills/integration-test-builder/SKILL.md` when using the
-   repository-local copy). Give it only the current unit's requirements,
-   acceptance criteria, changed files, and relevant test results. Have it add
-   or improve independently executable integration tests and run them.
+   repository-local copy) in self-directed mode — no reviewer has run yet, so
+   there is no specification to carry. Give it only the current unit's
+   requirements, acceptance criteria, changed files, and relevant test results.
+   Have it add or improve independently executable integration tests and run
+   them.
 2. Run the reviewer in a fresh Claude subagent using the
    `integration-reviewer` skill. See "Reviewer invocation".
 3. When every criterion comes back `PASS`, accept the unit.
 4. When any criterion comes back `FAIL (unverifiable)`, re-run the test-builder
-   for the uncovered criteria only, then re-run the reviewer in another fresh
-   session.
+   in spec-driven mode for the uncovered criteria only, carrying the reviewer's
+   test specification. Then re-review in a **new** subagent — see "Spec-driven
+   test building".
 5. When any criterion comes back plain `FAIL`, send a corrective pass to the
    implementation session, then re-run the reviewer in a fresh session.
+
+### Spec-driven test building
+
+When the reviewer returns `FAIL (unverifiable)`, it has already worked out what
+evidence is missing and what test would produce it. Carry that specification to
+the test-builder instead of letting it re-derive the answer.
+
+The reviewer runs on Opus and designs the test; the test-builder runs on Luna
+and implements it. Deciding *what* to test is the judgment most prone to
+producing a test that mirrors the implementation, and it does not belong on the
+weakest model in the pipeline. Constructing the test from a precise spec does.
+
+Pass the spec through verbatim — boundary to exercise, setup required,
+observable to assert, and the "must fail when" mutation. That last field is
+what proves the test discriminates; a test-builder that skips it has produced a
+test that may pass regardless of the code. If the test-builder reports the spec
+is unimplementable, do not have it build something adjacent — take that back to
+a reviewer as a finding about observability.
+
+**The re-review must be a different subagent than the spec author.** A reviewer
+cannot honestly ask "could this test pass despite a wrong implementation?"
+about a test it designed. Start a new fresh subagent and give it no indication
+that the test came from a prior reviewer's spec. This is the same self-grading
+hole the read-only rule closed, in a subtler form — the reviewer that wrote the
+spec has an answer it is invested in.
+
+Designing a spec does not compromise the reviewer's independence. What must
+stay independent is independence *from the implementation*, and the spec is
+derived from the criterion and the requirements — which is exactly what
+`integration-test-builder` is already required to do.
 
 ### Reviewer invocation
 

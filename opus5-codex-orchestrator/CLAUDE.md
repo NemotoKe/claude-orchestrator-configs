@@ -60,6 +60,19 @@ boundary, concurrency, or security is Tier 3 regardless of diff size.
 
 Implementation and `integration-test-builder` are separate Codex invocations.
 
+On a `FAIL (unverifiable)`, carry the reviewer's test specification to
+`integration-test-builder` and have it implement that spec rather than
+re-deriving what to test. Deciding what to test is the judgment most likely to
+produce a test that mirrors the implementation, and it does not belong on the
+weakest model in the pipeline; building the test from a precise spec does. Pass
+the spec verbatim, including the "must fail when" mutation that proves the test
+discriminates.
+
+**Then re-review with a different subagent than the one that wrote the spec.**
+A reviewer cannot honestly judge whether a test it designed could pass despite
+a wrong implementation. Give the new subagent no hint that the test came from a
+prior reviewer.
+
 `integration-reviewer` does not run on Codex. Run it as a fresh Claude subagent
 pinned to Opus, and not from this session: you defined the task and watched the
 implementation land, so you are the party most likely to confirm your own
