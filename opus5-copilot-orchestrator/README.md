@@ -3,126 +3,121 @@
 Claude Opus 5 as orchestrator, GitHub Copilot CLI as the implementation worker.
 
 For environments where the Codex CLI is unavailable (no ChatGPT subscription, no
-usage-based OpenAI billing) but Copilot CLI is. Copilot CLI is an MCP *client*, not
-an MCP server — it has no `mcp-server` mode to attach to — so `bridge/copilot-mcp.mjs`
-wraps it in one.
+usage-based OpenAI billing) but Copilot CLI is. Copilot is invoked the same way
+Codex is: directly from the shell, with Claude reading its stdout/stderr.
 
 ```
 Claude Code (Opus 5, orchestrator)
-      │  MCP (stdio)
+      │  Bash
       ▼
-bridge/copilot-mcp.mjs      ← this repo
-      │  subprocess
-      ▼
-copilot -p "…" --model …
+copilot -p "…" --model … --effort … --allow-all-tools
 ```
+
+There is no MCP bridge and no server process to register — `copilot` is a
+plain CLI subprocess, same as `codex exec` on the Codex path.
 
 ## Status
 
-Verified end-to-end against the real `copilot` CLI (v1.0.77), not just a stub: the
-MCP handshake, both tools, `--allow-all-tools` file edits, `git diff`-reviewable
-output, and `copilot_reply` session continuity (including model inheritance across
-the reply, after a bug fix — see below) all work with `model: "auto"`.
+Verified end-to-end against the real `copilot` CLI (v1.0.77): `-p` for a
+non-interactive run, `--allow-all-tools` for unattended file edits, `git
+diff`-reviewable output, and `--resume <sessionId>` for session continuity —
+all confirmed against a live process. This replaces an earlier MCP-bridge
+version of this setup; the bridge added a stdio server and a config-file
+translation layer that direct invocation doesn't need.
 
-**`model: "luna"/"terra"/"sol"` is unverified and plan-gated, not just a naming
-guess.** On a Copilot free/individual account, every explicit `--model` value was
-rejected — including the account's own auto-selected models by display name. The
-actual cause, found via `gh api /copilot_internal/user`: that account's
-`quota_snapshots.premium_interactions.entitlement` was `0`. The free tier has zero
-quota for premium models, independent of what string you pass. `bridge/config.json`
-is written for a **Copilot Pro (or higher)** account where that entitlement is
-nonzero — confirm with the same `gh api` call before trusting the model table, then
-exercise one real call and check `exit: 0`. On a still-free account, don't set
-`model` at all; it falls back to `auto`.
+**`--model luna/terra/sol` slugs are unverified and plan-gated, not just a
+naming guess.** On a Copilot free/individual account, every explicit `--model`
+value was rejected — including the account's own auto-selected models by
+display name. The actual cause, found via `gh api /copilot_internal/user`:
+that account's `quota_snapshots.premium_interactions.entitlement` was `0`. The
+free tier has zero quota for premium models, independent of what string you
+pass. The model table in `CLAUDE.md` assumes a **Copilot Pro (or higher)**
+account where that entitlement is nonzero — confirm with the same `gh api`
+call before trusting the table, then exercise one real call and check `exit:
+0`. On a still-free account, don't pass `--model` at all.
 
-**`effort` requires an explicit `model`.** Passing `effort` while `model` resolves
-to `auto` fails outright (`Error: Model "auto" does not support reasoning effort
-configuration`) — confirmed against the real CLI. So `effort` is gated by the same
-Pro-plan requirement as `model`, not independently.
-
-**Fixed 2026-08-04: session continuity bug.** `copilot_reply` was falling back to
-`config.json`'s `defaultModel` instead of inheriting the model from the original
-call, because session-id extraction was reading only `stdout` — the CLI actually
-prints the resume hint (`Resume     copilot --resume=<id>`) to **stderr**, and the
-original regex didn't match that text form anyway (it assumed a `sessionId: <id>`
-shape). Both are fixed in `copilot-mcp.mjs` / `config.json` and re-verified live.
+**`--effort` requires an explicit `--model`.** Passing `--effort` while the
+model resolves to the CLI's auto default fails outright (`Error: Model "auto"
+does not support reasoning effort configuration`) — confirmed against the
+real CLI. So `--effort` is gated by the same Pro-plan requirement as
+`--model`, not independently.
 
 ## Setup
 
 ```bash
 npm install -g @github/copilot
-```
-
-Register the bridge with Claude Code, from the repository you want to work in:
-
-```bash
-claude mcp add --transport stdio copilot -- node /ABSOLUTE/PATH/TO/bridge/copilot-mcp.mjs
-```
-
-```bash
-claude mcp list
+copilot login   # or however this environment's Copilot CLI authenticates
+copilot --help  # confirm the flags below still match your installed version
 ```
 
 Then run `setup-project.sh copilot` from the project root (see the top-level
 README) to install `CLAUDE.md`, the skills, the state-file templates, and the
 delegation-prompt hook (`settings.json` in this directory). The hook's
-`PreToolUse` matcher assumes the bridge is registered as MCP server `copilot`,
-per the command above — if you register it under a different name, update the
-matcher in `settings.json` to match.
+`PreToolUse` matcher is `Bash`, the same as the Codex path — it tells the two
+workers apart by reading the command text, not by tool name.
 
 ## Adapting the config
 
-Everything environment-specific lives in `bridge/config.json`. Run `copilot --help`
-and reconcile these four things:
+Everything CLI-specific is written directly into `CLAUDE.md` and
+`skills/copilot-delegate/SKILL.md` rather than a separate config file. Run
+`copilot --help` and reconcile:
 
-| Config key | Check |
+| What | Check |
 |---|---|
-| `command` | Is the binary `copilot`, or is it `gh copilot`? For the latter, set `"command": "gh"` and put `"copilot"` at the front of `args.extra`. |
-| `args.prompt` | The non-interactive/print flag. `-p` here; may be `--prompt`. |
-| `args.model` + `models` | The model-selection flag, and whether Luna/Terra/Sol appear in the model list at all. Map the aliases to whatever slugs are actually offered. |
-| `args.resume` | The session-continuation flag. If Copilot has none, set it to `[]` — `copilot_reply` then starts a fresh run, so the orchestrator must restate context in the follow-up prompt. |
+| Binary name | Is it `copilot`, or is it invoked as `gh copilot`? If the latter, every `copilot -p ...` invocation in `CLAUDE.md` and the delegate skill needs `gh copilot -p ...` instead — and the hook's `*"copilot -p"*` match in `hooks/validate-delegation.sh` needs the same update. |
+| `-p` | The non-interactive/print flag. May be spelled `--prompt` in your version. |
+| `--model` | The model-selection flag, and whether `gpt-5.6-luna`/`terra`/`sol` are real slugs in your account's model list. Update the table in `CLAUDE.md` and the delegate skill to whatever your account actually offers. |
+| `--resume` | The session-continuation flag. If your Copilot CLI version has none, corrective passes cannot resume worker context — restate the needed background in the follow-up prompt instead. |
+| `--effort` / `--reasoning-effort` | The reasoning-depth flag; confirm it's still spelled this way and still requires an explicit `--model`. |
 
-`sessionIdPattern` is the regex used to scrape a session id out of the worker's
-output. Run one task by hand, look at how the id is printed, and adjust.
+### Capturing the session id
 
-### Reasoning effort
-
-`effort.mode` handles the fact that a different Copilot CLI version might not
-expose a reasoning-depth flag the same way:
-
-- `"flag"` — **current default**; verified real: `--effort, --reasoning-effort
-  <level>` (choices: `none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`).
-  Only works with an explicit `model` — see Status above.
-- `"prompt"` — fallback; the depth is prepended to the prompt as text instead
-- `"off"` — ignore effort entirely
+There is no bridge scraping this for you — Claude reads it directly out of
+the command's own output. Copilot CLI prints a resume hint to **stderr**
+(verified 2026-08-03 against copilot 1.0.77): a line containing
+`--resume=<id>` (or, with `--output-format json`, a `"sessionId":"<id>"` field
+in the stdout result line). After each `copilot -p` call, read that id from
+the Bash tool's output and carry it into the next `--resume <id>` call for a
+corrective pass. If it isn't visible in the output, re-run with
+`--output-format json` if your version supports it.
 
 ## Tools
 
-**`copilot`** — start a task. `prompt` (required), `model` (`luna`/`terra`/`sol` or a
-raw slug), `effort`, `cwd`, `allowAllTools`. Returns the worker's output plus a
-`sessionId`.
+**`copilot -p "<prompt>" [--model <slug>] [--effort <level>] [--allow-all-tools]`**
+— start a task. Prints the worker's output and a resume hint to stdout/stderr.
 
-**`copilot_reply`** — continue a session. `sessionId`, `prompt`, `cwd`. Inherits the
-model from the originating call.
+**`copilot -p "<prompt>" --resume <sessionId> [--model <slug>] [--effort <level>]`**
+— continue a session. Unlike the old bridge, the model and effort are **not**
+inherited automatically — restate them on the resume call if you want the
+same tier.
 
-Model and effort selection guidance lives in [CLAUDE.md](CLAUDE.md) — the orchestrator
-reads it automatically.
+Model and effort selection guidance lives in
+[CLAUDE.md](CLAUDE.md) — the orchestrator reads it automatically.
 
 ## Safety properties
 
-**Runs are confined to git repositories.** The worker edits files in place; git is what
-makes those edits reviewable and revertible. `requireGitRepo: false` disables this —
-prefer `git init` over disabling it.
+**Runs are confined to git repositories by convention, not by a guard.**
+Unlike the old bridge, there is no `requireGitRepo` check enforced in code —
+`CLAUDE.md` and the delegate skill both require the working directory to be a
+git repository before invoking `copilot`, because the worker edits files in
+place and git is what makes those edits reviewable and revertible. Prefer
+`git init` over skipping the check.
 
-**Runs are serialized.** Concurrent tool calls queue rather than spawning parallel
-Copilot processes against one working tree. To genuinely parallelize, give each worker
-its own `git worktree` and a separate bridge instance.
+**Runs are not automatically serialized.** The old bridge queued concurrent
+tool calls against one working tree; a direct Bash invocation has no such
+queue. `CLAUDE.md` defaults to a single worker on one working tree and only
+parallelizes across separate `git worktree` checkouts — follow that, since two
+`copilot` processes editing the same tree concurrently will corrupt each
+other's changes.
 
-**`defaultAllowAllTools` is `true`.** The worker needs to write files and run tests, so
-it is passed `--allow-all-tools` by default and will not prompt before acting. It can
-run arbitrary commands within `cwd`. The git-repo guard bounds the blast radius on
-tracked files but does not sandbox the process — set this to `false` if that is not
-acceptable in your environment.
+**`--allow-all-tools` is the default invocation.** The worker needs to write
+files and run tests, so every delegation in the skill passes
+`--allow-all-tools` and the worker will not prompt before acting. It can run
+arbitrary commands within the working directory. The git-repo convention
+bounds the blast radius on tracked files but does not sandbox the process —
+drop the flag if that is not acceptable in your environment (interactive
+confirmation will then block unattended runs).
 
-**No credentials pass through the bridge.** It shells out to `copilot`, which uses
-whatever GitHub auth is already configured on the machine.
+**No credentials pass through anything extra.** `copilot` uses whatever
+GitHub auth is already configured on the machine; there is no intermediary
+process holding or forwarding credentials.

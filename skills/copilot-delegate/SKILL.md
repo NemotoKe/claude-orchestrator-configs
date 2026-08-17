@@ -2,11 +2,11 @@
 name: copilot-delegate
 description: >-
   Delegate bounded implementation work to the GitHub Copilot CLI worker via
-  the `copilot` MCP tool instead of editing source files directly. Use ONLY
-  when the user explicitly asks for this — "Copilotに投げて", "Copilotにやら
-  せて", "delegate this to Copilot", "use Copilot to implement this" — not
-  automatically for ordinary coding requests. Prefer `codex-delegate` when
-  Codex is available; reach for this one specifically when Codex is not
+  `copilot -p` from the shell instead of editing source files directly. Use
+  ONLY when the user explicitly asks for this — "Copilotに投げて", "Copilotに
+  やらせて", "delegate this to Copilot", "use Copilot to implement this" —
+  not automatically for ordinary coding requests. Prefer `codex-delegate`
+  when Codex is available; reach for this one specifically when Codex is not
   usable in the current environment (no ChatGPT subscription, no
   usage-based OpenAI billing) but Copilot CLI is. Carries the same contract
   as `codex-delegate`: default-FAIL acceptance criteria in
@@ -15,10 +15,9 @@ description: >-
   `.agents/repo-facts.md`, complexity tiers that select the verification
   pipeline, a structural pre-flight hook, and a read-only reviewer. The
   reviewer runs as a fresh Claude subagent pinned to Opus, not on Copilot CLI.
-  Requires the `copilot` MCP server (the bridge in
-  opus5-copilot-orchestrator/bridge/) to be registered and connected
-  (`claude mcp list`); if it is missing, tell the user instead of falling
-  back to editing directly.
+  Requires the `copilot` CLI to be installed and authenticated
+  (`command -v copilot`, `copilot --help`); if it is missing, tell the user
+  instead of falling back to editing directly.
 ---
 
 # Copilot delegation
@@ -27,10 +26,10 @@ You are acting as orchestrator for this one delegated task. The Copilot CLI
 worker is the implementation worker — it modifies source, adds tests, and
 runs them; you inspect the diff and verify. This mirrors `codex-delegate` in
 every load-bearing respect; read that skill's structure if you need the fuller
-rationale. The differences below come from how the `copilot` MCP bridge
-actually works — a tool call with structured arguments instead of a shell
-command, `copilot_reply` instead of `codex exec resume`, no fixed mandatory
-model — not from a different philosophy.
+rationale. The differences below come from how the `copilot` CLI actually
+works — `--resume <sessionId>` instead of `codex exec resume`, a session id
+you read out of the CLI's own output instead of structured JSON, no fixed
+mandatory model — not from a different philosophy.
 
 You are also the only writer of the state files. The worker does not touch
 them, and neither does the reviewer.
@@ -72,11 +71,20 @@ four.
 
 ## Before delegating
 
-1. Confirm the `copilot` MCP tool is available and connected. If not, stop
-   and tell the user — do not silently implement the change yourself.
-2. Confirm the working directory is inside a git repository. The bridge
-   refuses to run otherwise, by design — the worker edits files in place,
-   and git is what makes that reviewable and revertible.
+1. Confirm Copilot CLI is available and authenticated:
+
+   ```bash
+   command -v copilot
+   copilot --help
+   ```
+
+   If unavailable, stop and tell the user — do not silently implement the
+   change yourself.
+
+2. Confirm the working directory is inside a git repository. Nothing enforces
+   this for you the way a bridge would — the worker edits files in place, and
+   git is what makes that reviewable and revertible, so check it yourself
+   before delegating.
 3. Inspect the repository enough to write a task the worker can execute
    without asking you anything. It starts with no context from this
    conversation — restate file paths, prior decisions, and constraints
@@ -100,7 +108,7 @@ arrives without a tier, treat it as Tier 2.
 Do not combine unrelated outcomes into one delegation. If units depend on one
 another, state the dependency and delegate them in order; still give each unit
 an independently verifiable completion condition. Send one unit per `copilot`
-call. Add only Copilot-specific invocation details around the prompt.
+invocation. Add only Copilot-specific invocation details around the prompt.
 
 ## Check the prompt before sending it
 
@@ -110,17 +118,18 @@ to find it. Two gates run before the prompt leaves.
 
 ### The hook — structure
 
-`.agents/hooks/validate-delegation.sh` runs as a `PreToolUse` hook on the
-`copilot` MCP tool call and denies it outright when the prompt is missing
-required sections or references conversation context the worker does not
-have. It shares the same script as the Codex path, matching on the MCP tool
-name instead of a Bash command; Codex's mandatory model/effort flag check does
-not apply here, since Copilot has no single fixed model to check for.
+`.agents/hooks/validate-delegation.sh` runs as a `PreToolUse` hook on every
+Bash call and denies the tool call outright when a `copilot -p` prompt is
+missing required sections or references conversation context the worker does
+not have. It shares the same script as the Codex path, telling the two
+workers apart by command text instead of tool name; Codex's mandatory
+model/effort flag check does not apply here, since Copilot has no single
+fixed model to check for.
 
 It is not advisory. Every other rule in this repository is a policy you are
 asked to follow; this one runs whether or not you followed it. If it denies a
-call, rewrite the prompt — do not restructure the call to slip past the check,
-and do not implement the change yourself instead.
+call, rewrite the prompt — do not restructure the command to slip past the
+check, and do not implement the change yourself instead.
 
 It only checks what a script can decide without judgment. Passing it means the
 prompt is well-formed, not that it is good.
@@ -214,66 +223,90 @@ criteria, and before delegating the first unit:
 Do not delegate any unit until this file exists. A criterion that is not in
 the file is not tracked and cannot be accepted.
 
-## Calling the tool
+## Delegate
 
-Use the `copilot` MCP tool's `prompt` argument for a self-contained
-engineering task, in the same shape as Codex delegation:
+Run Copilot from the repository root with `copilot -p`. The prompt is a shell
+argument, not stdin, so build it as a variable first:
 
-- Objective
-- Relevant background (confirmed facts, not assumptions)
-- Complexity tier
-- Acceptance criteria
-- Allowed scope (files/modules)
-- Existing conventions to preserve
-- Required tests
-- Explicit non-goals
-- Expected final report shape
+```bash
+TASK=$(cat <<'EOF'
+<SELF-CONTAINED TASK>
+EOF
+)
+copilot -p "$TASK" \
+  --model gpt-5.6-terra \
+  --effort medium \
+  --allow-all-tools
+```
 
-Capture the returned `sessionId` for corrective passes.
+Include:
+
+* Objective
+* Relevant background and paths
+* Complexity tier
+* Acceptance criteria
+* Allowed scope
+* Required tests
+* Non-goals
+
+Read the session id out of the command's own output before you need it for a
+corrective pass — see "Capturing the session id" below. Do not assume `terra`
+and `medium` fit every unit; choose per "Choosing a model" and "Reasoning
+effort".
+
+### Capturing the session id
+
+There is no wrapper extracting this for you. Copilot CLI prints a resume hint
+to **stderr** (verified 2026-08-03 against copilot 1.0.77) as a line
+containing `--resume=<id>`; with `--output-format json` it instead appears as
+`"sessionId":"<id>"` in the stdout result line. Read the Bash tool's output
+after every `copilot -p` call and record the id — you will need it verbatim
+for a corrective pass. If it is not visible, re-run with `--output-format
+json` if your installed version supports it.
 
 ### Choosing a model — requires Copilot Pro (or higher)
 
-Pass `model` as `luna`, `terra`, or `sol` (aliases resolved by the bridge —
-see `bridge/config.json` in `opus5-copilot-orchestrator`):
+Pass `--model` as one of these slugs (confirm with `copilot --help` that your
+account's model list actually contains them):
 
-| Model | Use for |
-|---|---|
-| `luna` | Mechanical edits, renames, test scaffolding — and `integration-test-builder`, spec-driven or self-directed |
-| `terra` | **Default** — bounded implementation against clear acceptance criteria |
-| `sol` | Non-obvious algorithms, concurrency, tricky migrations |
+| Alias | Slug | Use for |
+|---|---|---|
+| luna | `gpt-5.6-luna` | Mechanical edits, renames, test scaffolding — and `integration-test-builder`, spec-driven or self-directed |
+| terra | `gpt-5.6-terra` | **Default** — bounded implementation against clear acceptance criteria |
+| sol | `gpt-5.6-sol` | Non-obvious algorithms, concurrency, tricky migrations |
 
 Escalate on evidence, not anticipation: `terra` first, `sol` only after a
 concrete failure.
 
-`integration-reviewer` does not run through this tool at all — see "Reviewer
+`integration-reviewer` does not run through `copilot` at all — see "Reviewer
 invocation" below.
 
 > **Plan-gated, not a naming issue.** On a Copilot free/individual account
-> every explicit `--model` value was rejected — not because the name was
+> every explicit `--model` value was rejected — not because the slug was
 > wrong, but because `gh api /copilot_internal/user` showed
 > `premium_interactions.entitlement: 0`: the free tier has zero quota for
 > premium models, full stop. This table is written for a **Copilot Pro (or
 > higher)** account where that entitlement is nonzero, and is **unverified**
 > end-to-end even there. Before trusting it: `gh api /copilot_internal/user
 > --jq .quota_snapshots.premium_interactions` and confirm `entitlement > 0`,
-> then run one real `copilot` call with an explicit `model` and check
-> `exit: 0` in the result before relying on it for actual work. If the
-> account is still on the free tier, skip `model` entirely (falls back to
-> `auto`) — don't retry different spellings; the plan is the blocker, not
-> the string.
+> then run one real `copilot -p` call with an explicit `--model` and check
+> exit 0 before relying on it for actual work. If the account is still on the
+> free tier, omit `--model` entirely — don't retry different spellings; the
+> plan is the blocker, not the string.
 
-### Reasoning effort — needs an explicit model, not `auto`
+### Reasoning effort — needs an explicit model, not the default
 
-Pass `effort` as `none` / `minimal` / `low` / `medium` / `high` / `xhigh` /
-`max`. Default to `medium`. **This bridge has no `ultra`-equivalent and no
-auto-delegation mode** — Copilot CLI doesn't expose one, so there is nothing
-to avoid here the way there is with Codex's `ultra`.
+Pass `--effort` as `none` / `minimal` / `low` / `medium` / `high` / `xhigh` /
+`max`. Default to `medium`. There is no `ultra`-equivalent and no
+auto-delegation mode to avoid here the way there is with Codex's `ultra` —
+Copilot CLI doesn't expose one.
 
-**Confirmed 2026-08-04: `effort` only works together with an explicit
-`model`.** Passing it while `model` resolves to `auto` fails outright —
-`Error: Model "auto" does not support reasoning effort configuration`. So
-`effort` is gated by the same Pro-plan requirement as `model` above: on a
-free-tier account, don't set `effort` — there's no model to attach it to.
+**Confirmed 2026-08-04: `--effort` only works together with an explicit
+`--model`.** Passing it while the model resolves to the CLI's auto default
+fails outright — `Error: Model "auto" does not support reasoning effort
+configuration`. So `--effort` is gated by the same Pro-plan requirement as
+`--model` above: on a free-tier account, leave `--effort` off — there's no
+model to attach it to.
 
 ## Per-unit execution loop
 
@@ -283,8 +316,9 @@ unit").
 
 Every tier starts the same way: delegate the implementation prompt to
 `terra` (escalating to `sol` only on observed failure, per "Choosing a
-model"), capture the `sessionId`, then review the diff yourself as described
-in "After delegating". The tiers differ in what follows.
+model"), capture the session id from the CLI's own output, then review the
+diff yourself as described in "After delegating". The tiers differ in what
+follows.
 
 ### Tier 1 — direct
 
@@ -300,17 +334,18 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
 1. Run the reviewer in a fresh Claude subagent using the
    `integration-reviewer` skill. See "Reviewer invocation".
 2. When every criterion comes back `PASS`, accept the unit.
-3. When any criterion comes back `FAIL (unverifiable)`, call the `copilot`
-   tool with `model: "luna"` using the `integration-test-builder` skill in
+3. When any criterion comes back `FAIL (unverifiable)`, invoke `copilot -p`
+   with `--model gpt-5.6-luna` using the `integration-test-builder` skill in
    spec-driven mode, carrying the reviewer's test specification for each
    uncovered criterion. Then re-review in a **new** subagent — see
    "Spec-driven test building". The unit stays Tier 2.
-4. When any criterion comes back plain `FAIL`, send a corrective pass via
-   `copilot_reply`, then re-run the reviewer in a fresh subagent.
+4. When any criterion comes back plain `FAIL`, send a corrective pass with
+   `copilot -p ... --resume <sessionId>`, then re-run the reviewer in a fresh
+   subagent.
 
 ### Tier 3 — full
 
-1. Call the `copilot` tool with `model: "luna"` using the
+1. Invoke `copilot -p` with `--model gpt-5.6-luna` using the
    `integration-test-builder` skill in self-directed mode — no reviewer has
    run yet, so there is no specification to carry. Give it only the current
    unit's requirements, acceptance criteria, changed files, and relevant test
@@ -320,11 +355,12 @@ Do not invoke the test-builder or the reviewer for a Tier 1 unit.
    `integration-reviewer` skill. See "Reviewer invocation".
 3. When every criterion comes back `PASS`, accept the unit.
 4. When any criterion comes back `FAIL (unverifiable)`, re-run the
-   test-builder (`model: "luna"`) in spec-driven mode for the uncovered
-   criteria only, carrying the reviewer's test specification. Then re-review
-   in a **new** subagent — see "Spec-driven test building".
-5. When any criterion comes back plain `FAIL`, send a corrective pass via
-   `copilot_reply`, then re-run the reviewer in a fresh subagent.
+   test-builder (`--model gpt-5.6-luna`) in spec-driven mode for the
+   uncovered criteria only, carrying the reviewer's test specification. Then
+   re-review in a **new** subagent — see "Spec-driven test building".
+5. When any criterion comes back plain `FAIL`, send a corrective pass with
+   `copilot -p ... --resume <sessionId>`, then re-run the reviewer in a fresh
+   subagent.
 
 ### Spec-driven test building
 
@@ -359,8 +395,8 @@ derived from the criterion and the requirements — which is exactly what
 
 ### Reviewer invocation
 
-The reviewer does not run through the `copilot` MCP tool. Run it as a **fresh
-Claude subagent pinned to Opus**.
+The reviewer does not run through `copilot`. Run it as a **fresh Claude
+subagent pinned to Opus**.
 
 Pin the model explicitly rather than letting the subagent inherit it. An
 inherited model makes the strength of the final gate depend on how the
@@ -401,7 +437,7 @@ The reviewer is read-only. State this in its prompt:
 
 Give it the unit's acceptance criteria, the changed files, and the test
 results — and nothing else. Do not give it the implementer's completion
-report, its conclusions, its `sessionId`, your own assessment of the change,
+report, its conclusions, its session id, your own assessment of the change,
 or the reasoning behind the task decomposition. Every one of those imports the
 conclusion you are asking it to check independently.
 
@@ -410,9 +446,9 @@ re-review in a new subagent.
 
 ### Applies to every tier
 
-* Each `copilot` call carries exactly one unit.
+* Each `copilot` invocation carries exactly one unit.
 * Implementation and `integration-test-builder` are always separate `copilot`
-  calls with fresh sessions (never a `copilot_reply` chained off a prior
+  invocations with fresh sessions (never a `--resume` chained off a prior
   call for a new stage). `integration-reviewer` is a separate Claude subagent,
   also with a fresh context.
 * Do not apply this loop recursively to test-builder or reviewer tasks.
@@ -427,11 +463,12 @@ re-review in a new subagent.
 3. Run the unit's tier pipeline (above).
 4. If the result is wrong or incomplete, attribute the failure first — see
    "Attribute the failure before correcting it" — then send a corrective task
-   via `copilot_reply` with the `sessionId` from the original call, rather
-   than fixing it yourself. If the bridge's `resume` flag is disabled in the
-   target config, `sessionId` won't actually resume worker context — restate
-   the needed background in the follow-up prompt rather than assuming it
-   carried over.
+   via `copilot -p ... --resume <sessionId>` rather than fixing it yourself.
+   Model and effort are not inherited across `--resume` the way a bridge
+   might have done it — restate `--model` and `--effort` on the corrective
+   call if you want the same tier, and restate any needed background in the
+   prompt, since `--resume` continues the worker's own session state but not
+   anything this orchestrator session knows.
 5. Accept the unit and record state (below).
 6. Summarize for the user: what changed, what you verified, what's still
    open.
@@ -461,7 +498,7 @@ question: would a competent worker following this prompt exactly have
 produced this failure?
 
 * **No — implementation defect.** The prompt was adequate. Send the
-  corrective pass via `copilot_reply`. Record nothing.
+  corrective pass via `copilot -p ... --resume <sessionId>`. Record nothing.
 * **Yes — prompt defect.** The worker did what the prompt said. Send the
   corrective pass *and* add the pattern to `.agents/prompt-defects.md`.
 
@@ -490,6 +527,71 @@ indefinitely.
 `.agents/prompt-defects.md` is shared across both delegation paths — a pattern
 recorded from a Codex unit applies here too, and vice versa. Read it at
 session start regardless of which worker this session uses.
+
+## Corrective pass
+
+If the implementation is wrong or incomplete, send a precise correction to
+the same session instead of fixing it yourself:
+
+```bash
+TASK=$(cat <<'EOF'
+Defect:
+<WHAT IS WRONG>
+
+Evidence:
+<DIFF / TEST FAILURE / BEHAVIOR>
+
+Required correction:
+<BOUNDED FIX>
+
+Preserve already-satisfied acceptance criteria.
+Do not expand scope.
+Run the relevant tests again.
+EOF
+)
+copilot -p "$TASK" \
+  --resume <SESSION_ID> \
+  --model gpt-5.6-terra \
+  --effort medium
+```
+
+Then review the diff and verify again.
+
+A criterion that failed stays `FAIL` in `.agents/criteria.md` until a reviewer
+PASS with cited evidence moves it. A completed corrective pass is not itself
+grounds to mark it PASS.
+
+If the unit cannot be finished — the corrective pass does not resolve it, the
+blocker is external, or the session is ending — record the finding before
+stopping:
+
+* `.agents/criteria.md`: leave the failed criteria at FAIL, with the observed
+  failure in the evidence column.
+* `.agents/progress.md`: the failure, the concrete blocker, what was tried and
+  rejected, and the next action.
+* Commit the state-file update.
+
+The finding must survive the session even when the work does not.
+
+## Responsibility boundary
+
+The orchestrator owns task definition, scope, acceptance criteria, model
+selection, review, and verification.
+
+Copilot CLI owns source edits, tests, implementation-level execution, and
+corrective changes.
+
+## Final report
+
+Tell the user:
+
+* what changed
+* which model/effort was used
+* each accepted unit with its tier and commit sha
+* what you independently verified
+* the criteria PASS count and which criteria are still FAIL
+* anything still unresolved, and the next action recorded in
+  `.agents/progress.md`
 
 ## Scope of this skill
 

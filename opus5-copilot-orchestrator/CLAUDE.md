@@ -10,8 +10,8 @@ Your responsibilities:
 - Inspect the repository and existing implementation.
 - Identify requirements, constraints, invariants, and affected components.
 - Split the work into units and produce an implementation plan.
-- Delegate source-code implementation to the Copilot worker via the `copilot`
-  MCP tools.
+- Delegate source-code implementation to the Copilot CLI worker via `copilot
+  -p` from the shell.
 - Review every resulting diff and run or verify tests.
 - Delegate corrective work when the result is incomplete, after attributing
   the failure (see "On failure").
@@ -35,7 +35,7 @@ Do not directly edit application source files unless:
 
 When the worker produces an incorrect implementation, do not silently repair
 it. Attribute the failure (see "On failure"), then delegate a corrective task
-via `copilot_reply`.
+via `copilot -p ... --resume <sessionId>`.
 
 ## Session start
 
@@ -80,15 +80,15 @@ worker this session uses.
 The prompt is the input to everything else, so it is checked before it is
 sent.
 
-`.agents/hooks/validate-delegation.sh` runs as a `PreToolUse` hook on the
-`copilot` MCP tool call and denies it when the prompt is missing required
-sections or references conversation context the worker does not have. It is
-the only check here that runs whether or not you complied with this file. It
-does not carry Codex's mandatory model/effort flag check — Copilot has no
-single fixed model, so that judgment stays with the model table below and
-`delegation-prompt-reviewer`. If the hook denies a call, rewrite the prompt —
-do not reshape the call to evade the check, and do not implement the change
-yourself instead.
+`.agents/hooks/validate-delegation.sh` runs as a `PreToolUse` hook on every
+Bash call and denies the tool call outright when a `copilot -p` prompt is
+missing required sections or references conversation context the worker does
+not have. It is the same script the Codex path uses, telling the two workers
+apart by command text rather than tool name. It does not carry Codex's
+mandatory model/effort flag check — Copilot has no single fixed model, so that
+judgment stays with the model table below and `delegation-prompt-reviewer`. If
+the hook denies a call, rewrite the prompt — do not reshape the call to evade
+the check, and do not implement the change yourself instead.
 
 For Tier 2 and Tier 3 units, also run `delegation-prompt-reviewer` in a fresh
 Claude subagent pinned to Opus. The hook decides structure; the subagent
@@ -112,25 +112,25 @@ never de-escalate mid-unit. Any unit whose criteria touch persistence, an
 external boundary, concurrency, or security is Tier 3 regardless of diff
 size.
 
-Implementation and `integration-test-builder` are separate `copilot` calls
-with fresh sessions — never a `copilot_reply` chained onto a prior call for a
-new stage.
+Implementation and `integration-test-builder` are separate `copilot`
+invocations with fresh sessions — never a `--resume` chained onto a prior
+call for a new stage.
 
 On a `FAIL (unverifiable)`, carry the reviewer's test specification to
-`integration-test-builder` (called with `model: "luna"`) and have it implement
-that spec rather than re-deriving what to test. Deciding what to test is the
-judgment most likely to produce a test that mirrors the implementation, and it
-does not belong on the cheapest tier in the pipeline; building the test from a
-precise spec does. Pass the spec verbatim, including the "must fail when"
-mutation that proves the test discriminates.
+`integration-test-builder` (invoked with `--model gpt-5.6-luna`) and have it
+implement that spec rather than re-deriving what to test. Deciding what to
+test is the judgment most likely to produce a test that mirrors the
+implementation, and it does not belong on the cheapest tier in the pipeline;
+building the test from a precise spec does. Pass the spec verbatim, including
+the "must fail when" mutation that proves the test discriminates.
 
 **Then re-review with a different subagent than the one that wrote the spec.**
 A reviewer cannot honestly judge whether a test it designed could pass despite
 a wrong implementation. Give the new subagent no hint that the test came from
 a prior reviewer.
 
-`integration-reviewer` does not run through the `copilot` MCP tool at all. Run
-it as a fresh Claude subagent pinned to Opus, and not from this session: you
+`integration-reviewer` does not run through the `copilot` CLI at all. Run it
+as a fresh Claude subagent pinned to Opus, and not from this session: you
 defined the task and watched the implementation land, so you are the party
 most likely to confirm your own framing. Give the subagent the acceptance
 criteria, the changed files, and the test results — not the implementer's
@@ -175,8 +175,8 @@ Before sending a corrective pass, attribute the failure. Run
 whether a competent worker following that prompt exactly would have produced
 this failure.
 
-* No — implementation defect. Send the corrective pass via `copilot_reply`;
-  record nothing.
+* No — implementation defect. Send the corrective pass via
+  `copilot -p ... --resume <sessionId>`; record nothing.
 * Yes — prompt defect. Send the corrective pass, and add the reusable pattern
   to `.agents/prompt-defects.md` or increment `Seen` on the matching row.
 
@@ -190,35 +190,38 @@ corrective pass recurs on the next task with nothing recorded.
 
 ## Choosing a model — requires Copilot Pro (or higher)
 
-The `model` parameter selects the worker tier. Default to `terra`.
+The `--model` flag selects the worker tier. Default to `gpt-5.6-terra`.
 
-| Model | Use for |
-|---|---|
-| `luna` | Mechanical edits, renames, test scaffolding — and `integration-test-builder`, spec-driven or self-directed |
-| `terra` | **Default** — bounded implementation against clear acceptance criteria |
-| `sol` | Non-obvious algorithms, concurrency, tricky migrations, anything `terra` failed at twice |
+| Alias | Slug | Use for |
+|---|---|---|
+| luna | `gpt-5.6-luna` | Mechanical edits, renames, test scaffolding — and `integration-test-builder`, spec-driven or self-directed |
+| terra | `gpt-5.6-terra` | **Default** — bounded implementation against clear acceptance criteria |
+| sol | `gpt-5.6-sol` | Non-obvious algorithms, concurrency, tricky migrations, anything `terra` failed at twice |
 
 Escalate on evidence, not on anticipation: send the task to `terra` first, and
-move to `sol` only after a concrete failure.
+move to `sol` only after a concrete failure. The exact slugs may differ in
+your environment — run `copilot --help` and check what `--model` actually
+accepts before trusting this table.
 
 `integration-reviewer` does not run through this table at all — it is a fresh
-Claude subagent pinned to Opus, never the Copilot worker at any tier. See
-"Verification pipeline".
+Claude subagent pinned to Opus, never the Copilot worker. See "Verification
+pipeline".
 
 > **This is plan-gated, not a naming problem.** On a Copilot free/individual
-> account, every explicit `model` value failed — `gh api /copilot_internal/user`
-> showed `premium_interactions.entitlement: 0`, meaning the account has zero
-> quota for premium models regardless of spelling. This table assumes
-> **Copilot Pro (or higher)**, where that entitlement is nonzero, and is
-> **unverified even there** — confirm `entitlement > 0` via that same command,
-> then check one real call returns `exit: 0` before trusting it. On a
-> still-free account, omit `model` (falls back to `auto`) rather than guessing
-> at alternate spellings.
+> account, every explicit `--model` value was rejected — `gh api
+> /copilot_internal/user` showed `quota_snapshots.premium_interactions.
+> entitlement: 0`, meaning the account has zero quota for premium models
+> regardless of spelling. This table assumes **Copilot Pro (or higher)**,
+> where that entitlement is nonzero, and is **unverified even there** —
+> confirm `entitlement > 0` via that same command, then check one real call
+> returns exit 0 before trusting it. On a still-free account, omit `--model`
+> entirely (falls back to the CLI's own default) rather than guessing at
+> alternate spellings.
 
-## Reasoning effort — needs an explicit model, not `auto`
+## Reasoning effort — needs an explicit model, not the default
 
-The `effort` parameter controls reasoning depth per task: `none` / `minimal` /
-`low` / `medium` / `high` / `xhigh` / `max`.
+The `--effort` (or `--reasoning-effort`) flag controls reasoning depth per
+task: `none` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`.
 
 | Effort | Use for |
 |---|---|
@@ -232,11 +235,11 @@ Do not raise effort to compensate for an underspecified task. If the worker is
 flailing, the usual cause is a missing acceptance criterion, not insufficient
 reasoning depth — fix the task specification first.
 
-**Confirmed 2026-08-04: `effort` requires an explicit `model` — it errors
-outright against `auto`** (`Error: Model "auto" does not support reasoning
-effort configuration`). It is gated by the same Pro-plan requirement as
-`model` above: on a free-tier account there is no model to attach effort to,
-so leave this parameter unset.
+**Confirmed 2026-08-04: `--effort` requires an explicit `--model` — it errors
+outright against the CLI's auto-selected model** (`Error: Model "auto" does
+not support reasoning effort configuration`). It is gated by the same
+Pro-plan requirement as `--model` above: on a free-tier account there is no
+model to attach effort to, so leave this flag off.
 
 ## Delegation requirements
 
@@ -262,10 +265,10 @@ the task.
 
 ## Working directory constraint
 
-The bridge refuses to run outside a git repository. This is deliberate: the
-worker edits files in place, and git is what makes those edits reviewable and
-reversible. Do not disable this to work around an error — initialize the
-repository instead.
+Run `copilot` from inside a git repository. This is deliberate: the worker
+edits files in place, and git is what makes those edits reviewable and
+reversible. If the target directory is not a repository, initialize one
+rather than working around the constraint.
 
 ## Parallelization
 
