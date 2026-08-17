@@ -31,8 +31,7 @@ opus5-codex-orchestrator/
 opus5-copilot-orchestrator/
   CLAUDE.md                    Always-on policy: delegate implementation to Copilot CLI
   README.md                    Setup and usage
-  bridge/                      MCP stdio bridge wrapping the Copilot CLI
-  settings.json                Hook registration (the bridge's `copilot`/`copilot_reply` MCP tools), installed as the project's .claude/settings.json
+  settings.json                Hook registration (Bash/`copilot -p`), installed as the project's .claude/settings.json
 
 setup-project.sh               Install a CLAUDE.md, the skills, the templates, and the delegation-prompt hook into a project
 ```
@@ -148,10 +147,10 @@ it is discovered only after a full implementation round has been spent on it.
 Two checks, split by what each can actually decide, and both cover both
 workers.
 
-`hooks/validate-delegation.sh` is a `PreToolUse` hook. On the Codex path it
-matches `Bash` and reads the command; on the Copilot path it matches the
-bridge's `copilot`/`copilot_reply` MCP tool calls and reads the `prompt`
-argument. Either way it verifies structure only: the required sections
+`hooks/validate-delegation.sh` is a `PreToolUse` hook matching `Bash` on both
+paths — Codex and Copilot are both invoked as plain CLI subprocesses, so one
+script tells them apart by command text (`codex exec` vs `copilot -p`) rather
+than by tool name. Either way it verifies structure only: the required sections
 (Objective, Complexity Tier, Acceptance Criteria, Allowed scope, Non-goals,
 plus Required tests or TDD Scenarios for Tier 2 and 3, or Defect/Evidence/
 Required correction on a corrective pass) and a narrow list of phrases that
@@ -203,10 +202,12 @@ since a broken hook that blocks every delegation is worse than an absent one.
 The registered command uses a path relative to the project root
 (`sh .agents/hooks/validate-delegation.sh`); if the hook does not appear to
 fire, replace it with an absolute path and confirm the registration with
-`/hooks`. The Copilot registration's matcher assumes the bridge is registered
-as MCP server `copilot`; if it is registered under a different name, update
-the matcher in `opus5-copilot-orchestrator/settings.json` — the hook script
-itself matches by tool-name suffix and needs no change.
+`/hooks`. Both `opus5-codex-orchestrator/settings.json` and
+`opus5-copilot-orchestrator/settings.json` register the identical `Bash`
+matcher; if the Copilot CLI is invoked under a different binary name than
+`copilot` in your environment, update the `*"copilot -p"*` match inside
+`hooks/validate-delegation.sh` itself, since that is where the two workers
+are told apart.
 
 ### State files
 
@@ -302,16 +303,12 @@ tiers, default-FAIL criteria, the read-only reviewer, the prompt gates, spec-
 driven test building, and both cross-task records — described in detail in
 `skills/copilot-delegate/SKILL.md` and `opus5-copilot-orchestrator/CLAUDE.md`.
 
-Unlike the Codex setup in this repository, Copilot is exposed to Claude through
-the custom MCP bridge under:
+Copilot is invoked the same way Codex is: directly from the shell, as a Bash
+subprocess (`copilot -p ...`), with Claude reading its stdout/stderr. There is
+no MCP server or bridge process — see `opus5-copilot-orchestrator/README.md`
+for setup details.
 
-```text
-opus5-copilot-orchestrator/bridge/
-```
-
-See that project's README for setup details.
-
-Copilot has no single fixed model the way Codex is pinned to Luna. `model`
+Copilot has no single fixed model the way Codex is pinned to Luna. `--model`
 selects a tier per call, and escalation is evidence-based, not automatic:
 
 | Model | Use for |
@@ -354,10 +351,11 @@ The script installs only the templates. It never creates or overwrites a live
 `.agents/repo-facts.md` — the orchestrator writes those from the installed
 templates.
 
-On the `codex` path the script also installs the delegation hook to
-`.agents/hooks/validate-delegation.sh`, marks it executable, and registers it by
-writing `.claude/settings.json`. The Copilot path has no hook yet. An existing
-`.claude/settings.json` is never overwritten: the fragment is written to
+On both the `codex` and `copilot` paths the script also installs the
+delegation hook to `.agents/hooks/validate-delegation.sh`, marks it
+executable, and registers it by writing `.claude/settings.json` with an
+identical `Bash` matcher. An existing `.claude/settings.json` is never
+overwritten: the fragment is written to
 `.claude/settings.json.orchestrator-fragment` instead, and the script prints a
 message to merge its `hooks.PreToolUse` entry by hand.
 

@@ -1,7 +1,8 @@
 #!/bin/sh
 # PreToolUse hook: structurally validate delegation prompts, for both the
-# Codex CLI path (Bash `codex exec`) and the Copilot CLI path (the `copilot`
-# MCP bridge's `copilot` / `copilot_reply` tools).
+# Codex CLI path (Bash `codex exec`) and the Copilot CLI path (Bash
+# `copilot -p`). Both workers are invoked directly from the shell, so this
+# hook matches on `Bash` alone and tells the two apart by command text.
 #
 # Everything else in this repository is a policy the model is asked to follow.
 # This is the one check that runs whether or not the model complied, which is
@@ -34,28 +35,18 @@ fi
 
 tool_name=$(printf '%s' "$payload" | jq -r '.tool_name // ""')
 
-# Identify which worker this call targets, and where its prompt text lives.
-# Codex: a Bash call piping a heredoc into `codex exec`. Copilot: an MCP tool
-# call on the bridge's `copilot` / `copilot_reply` tools, matched by tool-name
-# suffix so this survives the bridge being registered under a different MCP
-# server name than "copilot".
-worker=""
-command_text=""
+[ "$tool_name" = "Bash" ] || exit 0
 
-if [ "$tool_name" = "Bash" ]; then
-    command_text=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
-    case "$command_text" in
-        *"codex exec"*) worker="codex" ;;
-        *) exit 0 ;;
-    esac
-else
-    case "$tool_name" in
-        *"__copilot_reply") worker="copilot-reply" ;;
-        *"__copilot") worker="copilot" ;;
-        *) exit 0 ;;
-    esac
-    command_text=$(printf '%s' "$payload" | jq -r '.tool_input.prompt // ""')
-fi
+command_text=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
+
+# Identify which worker this call targets. Both are shelled out to directly,
+# so this is command-text matching, not a tool-name check.
+worker=""
+case "$command_text" in
+    *"codex exec"*) worker="codex" ;;
+    *"copilot -p"*) worker="copilot" ;;
+    *) exit 0 ;;
+esac
 
 missing=""
 leaks=""
@@ -106,25 +97,29 @@ case "$worker" in
             flags="$flags
   - missing: -c model_reasoning_effort=xhigh"
         ;;
-    copilot-reply)
-        kind="Copilot corrective pass"
-        require "Defect:" "Defect:"
-        require "Evidence:" "Evidence:"
-        require "Required correction:" "Required correction:"
-        ;;
     copilot)
-        kind="Copilot delegation"
-        require "Objective" "Objective"
-        require "Tier [123]" "Complexity Tier (declare Tier 1, 2, or 3)"
-        require "Acceptance Criteria" "Acceptance Criteria"
-        require "Allowed scope" "Allowed scope"
-        require "Non-goals" "Non-goals"
+        case "$command_text" in
+            *"--resume"*)
+                kind="Copilot corrective pass"
+                require "Defect:" "Defect:"
+                require "Evidence:" "Evidence:"
+                require "Required correction:" "Required correction:"
+                ;;
+            *)
+                kind="Copilot delegation"
+                require "Objective" "Objective"
+                require "Tier [123]" "Complexity Tier (declare Tier 1, 2, or 3)"
+                require "Acceptance Criteria" "Acceptance Criteria"
+                require "Allowed scope" "Allowed scope"
+                require "Non-goals" "Non-goals"
 
-        if has "Tier [23]"; then
-            has "Required tests" || has "TDD Scenarios" ||
-                missing="$missing
+                if has "Tier [23]"; then
+                    has "Required tests" || has "TDD Scenarios" ||
+                        missing="$missing
   - Required tests or TDD Scenarios (mandatory for Tier 2 and Tier 3)"
-        fi
+                fi
+                ;;
+        esac
         ;;
 esac
 
