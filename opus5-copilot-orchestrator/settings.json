@@ -1,0 +1,19 @@
+{
+  "_comment": "Registers the delegation-prompt hook against the Copilot MCP bridge's tools. Installed to .claude/settings.json in the target project by setup-project.sh. The matcher assumes the bridge is registered as MCP server 'copilot' (per this project's README: `claude mcp add --transport stdio copilot -- node ...`), giving tool names mcp__copilot__copilot and mcp__copilot__copilot_reply. If the bridge is registered under a different server name, update the matcher to match — the hook script itself matches by tool-name suffix and does not need to change. The command assumes the hook runs with the project root as its working directory; if the hook does not fire, replace the relative path with an absolute one and check with /hooks.",
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__copilot__copilot|mcp__copilot__copilot_reply",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .agents/hooks/validate-delegation.sh",
+            "timeout": 10,
+            "statusMessage": "Validating delegation prompt"
+          }
+        ]
+      }
+    ]
+  }
+}

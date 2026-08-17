@@ -1,0 +1,19 @@
+{
+  "_comment": "Registers the delegation-prompt hook. Installed to .claude/settings.json in the target project by setup-project.sh. The command assumes the hook runs with the project root as its working directory; if the hook does not fire, replace the relative path with an absolute one and check with /hooks.",
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .agents/hooks/validate-delegation.sh",
+            "timeout": 10,
+            "statusMessage": "Validating delegation prompt"
+          }
+        ]
+      }
+    ]
+  }
+}

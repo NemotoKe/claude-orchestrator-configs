@@ -63,6 +63,13 @@ claude mcp add --transport stdio copilot -- node /ABSOLUTE/PATH/TO/bridge/copilo
 claude mcp list
 ```
 
+Then run `setup-project.sh copilot` from the project root (see the top-level
+README) to install `CLAUDE.md`, the skills, the state-file templates, and the
+delegation-prompt hook (`settings.json` in this directory). The hook's
+`PreToolUse` matcher assumes the bridge is registered as MCP server `copilot`,
+per the command above — if you register it under a different name, update the
+matcher in `settings.json` to match.
+
 ## Adapting the config
 
 Everything environment-specific lives in `bridge/config.json`. Run `copilot --help`
